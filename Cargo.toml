@@ -1,0 +1,9 @@
+[package]
+name = "pasm"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = "*"
+serde_json = "*"
+serde_derive = "*"

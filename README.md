@@ -1,2 +1,2 @@
 # pasm
-A minimalistic credential manager
+A minimal credential manager

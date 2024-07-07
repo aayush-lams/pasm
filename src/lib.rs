@@ -1,90 +1,85 @@
-use serde::{Deserialize, Serialize};
+#[macro_use]
+extern crate magic_crypt;
+use magic_crypt::MagicCryptTrait;
 use serde_derive::Deserialize;
 use serde_derive::Serialize;
 use std::fs;
-use std::fs::OpenOptions;
 use std::io;
 use std::io::Write;
 
 pub fn run(conf: Config) -> Result<(), String> {
+    let fname = String::from("pasmuser0.txt");
     match conf.operation.as_str() {
         "write" => {
-            let mut name = String::new();
-            let mut site = String::new();
-            let mut uname = String::new();
-            let mut pword = String::new();
-            let mut note = String::new();
+            if conf.filename == "." {
+                let mut name = String::new();
+                let mut site = String::new();
+                let mut uname = String::new();
+                let mut pword = String::new();
+                let mut note = String::new();
 
-            println!("\nname of entry >>");
-            io::stdin()
-                .read_line(&mut name)
-                .expect("error reading name!");
+                println!("\nname of entry >>");
+                io::stdin()
+                    .read_line(&mut name)
+                    .expect("error reading name!");
 
-            println!("\nsitename >>");
-            io::stdin()
-                .read_line(&mut site)
-                .expect("error reading sitename!");
+                println!("\nsitename >>");
+                io::stdin()
+                    .read_line(&mut site)
+                    .expect("error reading sitename!");
 
-            println!("\nuser name >>");
-            io::stdin()
-                .read_line(&mut uname)
-                .expect("error reading username!");
+                println!("\nuser name >>");
+                io::stdin()
+                    .read_line(&mut uname)
+                    .expect("error reading username!");
 
-            println!("\npassword >>");
-            io::stdin()
-                .read_line(&mut pword)
-                .expect("error reading password!");
+                println!("\npassword >>");
+                io::stdin()
+                    .read_line(&mut pword)
+                    .expect("error reading password!");
 
-            println!("\nwrite short note: >>");
-            io::stdin()
-                .read_line(&mut note)
-                .expect("error reading note!");
-            let details = Details {
-                name: name.trim().to_string(),
-                site: site.trim().to_string(),
-                uname: uname.trim().to_string(),
-                pword: pword.trim().to_string(),
-                note: note.trim().to_string(),
-            };
+                println!("\nwrite short note: >>");
+                io::stdin()
+                    .read_line(&mut note)
+                    .expect("error reading note!");
+                let details = Details {
+                    name: name.trim().to_string(),
+                    site: site.trim().to_string(),
+                    uname: uname.trim().to_string(),
+                    pword: pword.trim().to_string(),
+                    note: note.trim().to_string(),
+                };
 
-            // println!("{}{}{}{}{}",details[0], details[1], details[2], details[3], details[4])
-            write(details, conf.filename);
+                // println!("{}{}{}{}{}",details[0], details[1], details[2], details[3], details[4])
+                write(details, fname); //here is fname is filename
+            } else {
+                eprintln!("syntax error!");
+            }
         }
         "display" => {
-            println!("Displaying Result : \n");
-            display(conf.filename);
+            if conf.filename == "." {
+                println!("Displaying Result : \n");
+                display(fname);
+            } else {
+                eprintln!("syntax error!");
+            }
         }
         "find" => {
-            let mut name = String::new();
-            println!("\ntype the name to find >> ");
-            io::stdin()
-                .read_line(&mut name)
-                .expect("failed to read line!");
-            find(name, conf.filename);
+            find(conf.filename, fname); //here fname is filename and conf.filename is name of entry
         }
         "delete" => {
-            let mut input = String::new();
-            println!("name to delete >> ");
-            io::stdin()
-                .read_line(&mut input)
-                .expect("failed to read name!");
-            delete(input, conf.filename);
+            delete(conf.filename, fname); //here fname is filename, conf.filename is name of entry
         }
         "remove" => {
             if let Err(e) = fs::remove_file(conf.filename) {
+                //here it is conf.filename=filename
                 eprintln!("Failed to delete file: {}", e);
             } else {
                 println!("File deleted successfully");
             }
         }
         "edit" => {
-            let mut input = String::new();
-            println!("type the name of entry to edit >> ");
-            io::stdin()
-                .read_line(&mut input)
-                .expect("failed to input name of entry !");
-            println!("\n");
-            find(input.clone(), conf.filename.clone());
+            find(conf.filename.clone(), fname.clone());
             println!("\n");
             println!("Type the new Entries : \n");
             let mut newContent: Vec<String> = Vec::new();
@@ -129,10 +124,10 @@ pub fn run(conf: Config) -> Result<(), String> {
             let note: &str = note.trim();
             newContent.push(note.to_string());
 
-            edit(input.clone(), &newContent, conf.filename.clone());
+            edit(conf.filename, &newContent, fname);
         }
         "help" => {
-            help(conf.filename);
+            help();
         }
         _ => {
             println!("not a valid command !");
@@ -143,12 +138,15 @@ pub fn run(conf: Config) -> Result<(), String> {
 
 pub fn write(details: Details, filename: String) {
     let detailStr = serde_json::to_string(&details).expect("error converting to string");
+    let mcrypt = new_magic_crypt!("magickey", 256);
+    let binding = mcrypt.encrypt_str_to_base64(detailStr);
+    let crypt_text = binding.as_str();
     let mut file = fs::File::options()
         .append(true)
         .create(true)
         .open(filename)
         .expect("error opening file in append mode!");
-    writeln!(file, "{}", detailStr).expect("error writing to file!");
+    writeln!(file, "{}", crypt_text).expect("error writing to file!");
     println!("Wrote to a file sucessfully!");
 }
 
@@ -159,9 +157,12 @@ pub fn find(name: String, filename: String) {
     println!("Displaying Result : \n");
     for line in file.lines() {
         // println!("{line}");
-        if line.to_lowercase().contains(&name.to_lowercase()) {
+        let mcrypt = new_magic_crypt!("magickey", 256);
+        let binding = mcrypt.decrypt_base64_to_string(line).unwrap();
+        let decrypt_text = binding.as_str();
+        if decrypt_text.to_lowercase().contains(&name.to_lowercase()) {
             let lineStruct: Details =
-                serde_json::from_str(line).expect("Failed to convert to Struct!");
+                serde_json::from_str(decrypt_text).expect("Failed to convert to Struct!");
             println!("name : {}", lineStruct.name);
             println!("site : {}", lineStruct.site);
             println!("uname : {}", lineStruct.uname);
@@ -178,7 +179,11 @@ pub fn delete(name: String, filename: String) {
     let mut newfile = fs::File::create("dummy.txt").expect("failed to create dummy.txt");
     let name = name.trim();
     for line in file.lines() {
-        if !line.to_lowercase().contains(&name) {
+        let mcrypt = new_magic_crypt!("magickey", 256);
+        let binding = mcrypt.decrypt_base64_to_string(line).unwrap();
+        let decrypt_text = binding.as_str();
+
+        if !decrypt_text.to_lowercase().contains(&name) {
             writeln!(newfile, "{}", line).expect("Failed to write to newfile");
         }
     }
@@ -190,7 +195,11 @@ pub fn display(filename: String) {
     let file = fs::read_to_string(&filename).expect("failed to read file!");
     for line in file.lines() {
         // println!("{line}");
-        let lineStruct: Details = serde_json::from_str(line).expect("Failed to convert to Struct!");
+        let mcrypt = new_magic_crypt!("magickey", 256);
+        let binding = mcrypt.decrypt_base64_to_string(line).unwrap();
+        let decrypt_text = binding.as_str();
+        let lineStruct: Details =
+            serde_json::from_str(decrypt_text).expect("Failed to convert to Struct!");
         println!("name : {}", lineStruct.name);
         println!("site : {}", lineStruct.site);
         println!("uname : {}", lineStruct.uname);
@@ -206,9 +215,12 @@ pub fn edit(name: String, newContent: &Vec<String>, filename: String) {
     let mut newfile = fs::File::create("dummy.txt").expect("failed to create dummy.txt");
     let name = name.trim();
     for line in file.lines() {
-        if line.to_lowercase().contains(&name) {
+        let mcrypt = new_magic_crypt!("magickey", 256);
+        let binding = mcrypt.decrypt_base64_to_string(line).unwrap();
+        let decrypt_text = binding.as_str();
+        if decrypt_text.to_lowercase().contains(&name) {
             let mut lineStruct: Details =
-                serde_json::from_str(line).expect("failed to convert to struct!");
+                serde_json::from_str(decrypt_text).expect("failed to convert to struct!");
             if newContent[0] != "" {
                 lineStruct.name = newContent[0].to_string();
             }
@@ -234,20 +246,20 @@ pub fn edit(name: String, newContent: &Vec<String>, filename: String) {
     println!("edited {} from file sucessfully !", name);
 }
 
-pub fn help(filename: String) {
-    println!("Usage: pasm -- [operation] [option2]\n");
-        println!("Operation:");
-        println!("\tdelete : Delete particular entry from file");
-        println!("\tdisplay : Display all entries");
-        println!("\tedit : Edit particular entries");
-        println!("\tfind : Find and display particular entries");
-        println!("\thelp : Display help");
-        println!("\tremove : Remove the file");
-        println!("\twrite : Write new entry, creates new if file doesnot exist\n");
-        println!("Option2:");
-        println!("\tfilename: filename or complete path from root");
-        println!("\t. : used with help to display all materials");
-
+pub fn help() {
+    println!("Usage: pasm [operation] [option2]\n");
+    println!("Operation:");
+    println!("\tdelete : Delete particular entry from file : takes [name]");
+    println!("\tdisplay : Display all entries : takes '.'");
+    println!("\tedit : Edit particular entries : takes [name]");
+    println!("\tfind : Find and display particular entries : takes [name]");
+    println!("\thelp : Display help : takes '.'");
+    println!("\tremove : Remove the file : takes [filename]");
+    println!("\twrite : Write new entry, creates new if file doesnot exist : takes '.'\n");
+    println!("Option2:");
+    println!("\tfilename: filename or complete path from root");
+    println!("\name: name of entry");
+    println!("\t. : used with help to display all materials");
 }
 pub struct Config {
     pub operation: String,

@@ -237,7 +237,9 @@ pub fn edit(name: String, newContent: &Vec<String>, filename: String) {
                 lineStruct.note = newContent[4].to_string();
             }
             let linestr = serde_json::to_string(&lineStruct).expect("failed to convert to string!");
-            writeln!(newfile, "{}", linestr).expect("Failed to write to newfile");
+            let binding = mcrypt.encrypt_str_to_base64(linestr);
+            let crypt_text = binding.as_str();
+            writeln!(newfile, "{}", crypt_text).expect("Failed to write to newfile");
         } else {
             writeln!(newfile, "{}", line).expect("Failed to write to newfile");
         }

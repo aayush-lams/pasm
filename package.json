@@ -1,0 +1,17 @@
+{
+  "name": "pasmui",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "dev":"http-server -p 3000",
+    "build":"echo \"no build step defined\"",
+    "test": "echo \"Error: no test specified\" && exit 0"
+  },
+  "devDependencies": {
+    "http-server": "^0.11.1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": ""
+}

@@ -5,13 +5,14 @@ use serde_derive::Deserialize;
 use serde_derive::Serialize;
 use std::fs;
 use std::io;
+use std::env;
 use std::io::Write;
+use std::path::Path;
 
 pub fn run(conf: Config) -> Result<(), String> {
-    let fname = String::from("pasmuser0.txt");
     match conf.operation.as_str() {
         "write" => {
-            if conf.filename == "." {
+            if conf.entry_name.is_empty(){
                 let mut name = String::new();
                 let mut site = String::new();
                 let mut uname = String::new();
@@ -51,35 +52,33 @@ pub fn run(conf: Config) -> Result<(), String> {
                 };
 
                 // println!("{}{}{}{}{}",details[0], details[1], details[2], details[3], details[4])
-                write(details, fname); //here is fname is filename
+                write(details); //here is fname is filename
             } else {
                 eprintln!("syntax error!");
             }
         }
         "display" => {
-            if conf.filename == "." {
+            if conf.entry_name.is_empty() {
                 println!("Displaying Result : \n");
-                display(fname);
+                display();
             } else {
                 eprintln!("syntax error!");
             }
         }
         "find" => {
-            find(conf.filename, fname); //here fname is filename and conf.filename is name of entry
+            find(conf.entry_name);//onf.entry_name is name of entry
         }
         "delete" => {
-            delete(conf.filename, fname); //here fname is filename, conf.filename is name of entry
-        }
-        "remove" => {
-            if let Err(e) = fs::remove_file(conf.filename) {
-                //here it is conf.filename=filename
-                eprintln!("Failed to delete file: {}", e);
-            } else {
-                println!("File deleted successfully");
+            if conf.entry_name.len()>1 {
+            delete(conf.entry_name);//conf.entry_name is name of entry
+                }
+            else {
+                eprintln!("syntax error!");
             }
         }
+
         "edit" => {
-            find(conf.filename.clone(), fname.clone());
+            find(conf.entry_name.clone());
             println!("\n");
             println!("Type the new Entries : \n");
             let mut newContent: Vec<String> = Vec::new();
@@ -124,7 +123,7 @@ pub fn run(conf: Config) -> Result<(), String> {
             let note: &str = note.trim();
             newContent.push(note.to_string());
 
-            edit(conf.filename, &newContent, fname);
+            edit(conf.entry_name, &newContent);
         }
         "help" => {
             help();
@@ -136,7 +135,13 @@ pub fn run(conf: Config) -> Result<(), String> {
     Ok(())
 }
 
-pub fn write(details: Details, filename: String) {
+pub fn write(details: Details){
+    let home_dir = env::home_dir().expect("Failed to get home directory");
+    let file_name = "pasmuser0.txt";
+    let filepath = home_dir.join(".config").join("pasm").join(file_name);
+    let parent_dir = filepath.parent().expect("failed to get parent directory");
+    fs::create_dir_all(parent_dir).expect("failed to create directory");
+
     let detailStr = serde_json::to_string(&details).expect("error converting to string");
     let mcrypt = new_magic_crypt!("magickey", 256);
     let binding = mcrypt.encrypt_str_to_base64(detailStr);
@@ -144,16 +149,20 @@ pub fn write(details: Details, filename: String) {
     let mut file = fs::File::options()
         .append(true)
         .create(true)
-        .open(filename)
+        .open(&filepath)
         .expect("error opening file in append mode!");
     writeln!(file, "{}", crypt_text).expect("error writing to file!");
     println!("Wrote to a file sucessfully!");
 }
 
-pub fn find(name: String, filename: String) {
+pub fn find(name: String){
+    let home_dir = env::home_dir().expect("Failed to get home directory");
+    let file_name = "pasmuser0.txt";
+    let filepath = home_dir.join(".config").join("pasm").join(file_name);
+
     // let name = "\"".to_owned()+&name + "\"";
     let name = name.trim();
-    let file = fs::read_to_string(&filename).expect("failed to read file!");
+    let file = fs::read_to_string(&filepath).expect("failed to read file!");
     println!("Displaying Result : \n");
     for line in file.lines() {
         // println!("{line}");
@@ -174,9 +183,14 @@ pub fn find(name: String, filename: String) {
     }
 }
 
-pub fn delete(name: String, filename: String) {
-    let file = fs::read_to_string(&filename).expect("failed to read file");
-    let mut newfile = fs::File::create("dummy.txt").expect("failed to create dummy.txt");
+pub fn delete(name: String){
+    let home_dir = env::home_dir().expect("Failed to get home directory");
+    let file_name = "pasmuser0.txt".to_string();
+    let filepath = home_dir.join(".config").join("pasm").join("pasmuser0.txt");
+
+    let file = fs::read_to_string(&filepath).expect("failed to read file");
+    let nfile = home_dir.join(".config").join("dummy.txt");
+    let mut newfile = fs::File::create(&nfile).expect("failed to create dummy.txt");
     let name = name.trim();
     for line in file.lines() {
         let mcrypt = new_magic_crypt!("magickey", 256);
@@ -187,12 +201,18 @@ pub fn delete(name: String, filename: String) {
             writeln!(newfile, "{}", line).expect("Failed to write to newfile");
         }
     }
-    fs::rename("dummy.txt", filename).expect("Failed to rename file");
+    fs::rename(nfile, filepath).expect("Failed to rename file");
     println!("Deleted {} from file sucessfully !", name);
 }
 
-pub fn display(filename: String) {
-    let file = fs::read_to_string(&filename).expect("failed to read file!");
+pub fn display(){
+    let home_dir = env::home_dir().expect("Failed to get home directory");
+    let file_name = "pasmuser0.txt";
+    let filepath = home_dir.join(".config").join("pasm").join(file_name);
+
+
+
+    let file = fs::read_to_string(&filepath).expect("failed to read file!");
     for line in file.lines() {
         // println!("{line}");
         let mcrypt = new_magic_crypt!("magickey", 256);
@@ -210,9 +230,16 @@ pub fn display(filename: String) {
     // print!("{}", line);
 }
 
-pub fn edit(name: String, newContent: &Vec<String>, filename: String) {
-    let file = fs::read_to_string(&filename).expect("failed to read file");
-    let mut newfile = fs::File::create("dummy.txt").expect("failed to create dummy.txt");
+pub fn edit(name: String, newContent: &Vec<String> ) {
+    let home_dir = env::home_dir().expect("Failed to get home directory");
+let file_name = "pasmuser0.txt".to_string();
+let filepath = home_dir.join(".config").join("pasm").join("pasmuser0.txt");
+
+
+
+    let file = fs::read_to_string(&filepath).expect("failed to read file");
+    let nfile = home_dir.join(".config").join("dummy.txt");
+    let mut newfile = fs::File::create(&nfile).expect("failed to create dummy.txt");
     let name = name.trim();
     for line in file.lines() {
         let mcrypt = new_magic_crypt!("magickey", 256);
@@ -244,39 +271,54 @@ pub fn edit(name: String, newContent: &Vec<String>, filename: String) {
             writeln!(newfile, "{}", line).expect("Failed to write to newfile");
         }
     }
-    fs::rename("dummy.txt", filename).expect("Failed to rename file");
+    fs::rename(nfile, filepath).expect("Failed to rename file");
     println!("edited {} from file sucessfully !", name);
 }
 
 pub fn help() {
-    println!("Usage: pasm [operation] [option2]\n");
+    println!("Usage: pasm [operation] [name of entry]\n");
     println!("Operation:");
     println!("\tdelete : Delete particular entry from file : takes [name]");
-    println!("\tdisplay : Display all entries : takes '.'");
+    println!("\tdisplay : Display all entries");
     println!("\tedit : Edit particular entries : takes [name]");
     println!("\tfind : Find and display particular entries : takes [name]");
-    println!("\thelp : Display help : takes '.'");
-    println!("\tremove : Remove the file : takes [filename]");
-    println!("\twrite : Write new entry, creates new if file doesnot exist : takes '.'\n");
-    println!("Option2:");
-    println!("\tfilename: filename or complete path from root");
-    println!("\name: name of entry");
-    println!("\t. : used with help to display all materials");
+    println!("\thelp : Display help : takes");
+    println!("\twrite : Write new entry, creates new if file doesnot exist \n");
+}
+
+
+pub fn verify()->Result<(), String>{
+    let mut result = String::new();
+    println!("are you sure you want to make changes to the file ? (y/n)");
+    result = io::stdin()
+                .read_line(&mut result)
+                .expect("error reading result!").to_string();
+    if result.trim().to_lowercase() == "y" || result.trim().to_lowercase() == "yes" {
+        Ok(())
+    }
+    else {
+        Err("no changes made !".to_string())
+    }
 }
 pub struct Config {
     pub operation: String,
-    pub filename: String,
+    pub entry_name: String,
 }
 impl Config {
     pub fn new(args: &[String]) -> Result<Config, &'static str> {
-        if args.len() != 3 {
+        if args.len() > 3 && args.len() < 2 {
             return Err("Not enough arguments!");
         }
         let operation = args[1].clone();
-        let filename = args[2].clone();
+        let entry_name = if args.get(2).is_some(){
+            args[2].clone()
+        } else {
+            "".to_string()
+        };
+
         Ok(Config {
             operation,
-            filename,
+            entry_name,
         })
     }
 }

@@ -140,7 +140,7 @@ pub fn write(details: Details){
     let file_name = "pasmuser0.txt";
     let filepath = home_dir.join(".config").join("pasm").join(file_name);
     let parent_dir = filepath.parent().expect("failed to get parent directory");
-    fs::create_dir_all(parent_dir).expect("failed to create directory");
+    //fs::create_dir_all(parent_dir).expect("failed to create directory");
 
     let detailStr = serde_json::to_string(&details).expect("error converting to string");
     let mcrypt = new_magic_crypt!("magickey", 256);
@@ -152,7 +152,7 @@ pub fn write(details: Details){
         .open(&filepath)
         .expect("error opening file in append mode!");
     writeln!(file, "{}", crypt_text).expect("error writing to file!");
-    println!("Wrote to a file sucessfully!");
+    println!("Wrote to a file at '~/.config/pasm' sucessfully!");
 }
 
 pub fn find(name: String){

@@ -1,0 +1,10 @@
+- add filename to 'write' arg
+- same for display, edit, find, delete
+
+- add 'remove filename' function
+
+- write password at the top line of file 
+- enquire password for write, display, edit, find, delete, remove function
+
+- make a list of file and their location to keep track of them
+- place the list in .config/pasmfiles

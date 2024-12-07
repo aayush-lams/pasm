@@ -1,6 +1,7 @@
 use pasm::Config;
 use std::env;
 use std::process;
+use colored::*;
 fn main() {
     //std::process::Command::new("clear").status().expect("error clearning screen");
     let args: Vec<String> = env::args().collect();
@@ -14,6 +15,6 @@ fn main() {
         process::exit(1);
     }}
     else{
-        eprintln!("Syntax error! type help for more info.");
+        eprintln!("{}","Syntax error! type help for more info.".red().bold());
     }
 }

@@ -10,6 +10,7 @@ use std::path::Path;
 use colored::*;
 //core funciton to run
 
+//hol aits th e test info
 pub fn run(conf: Config) -> Result<(), String> {
     match conf.operation.as_str() {
         "init" => {
@@ -94,7 +95,7 @@ pub fn run(conf: Config) -> Result<(), String> {
             }
         }
 
-        "edit" => {
+        "edit" => {//this edits th efile
             if conf.file_arg.len() > 1 {
                 let ispasskeycorrect = verify(conf.file_arg.clone());
                 match ispasskeycorrect {
@@ -270,7 +271,7 @@ pub fn ui_to_vec() -> Vec<String> {
         .read_line(&mut note)
         .expect(&"error reading notes!".red().bold().to_string());
     let note: &str = note.trim();
-    new_content.push(note.to_string());
+    new_content.push(note.to_string());//very lon gini t?
     new_content
 }
 pub fn save_to_db(key: String, value: String, database: String) {

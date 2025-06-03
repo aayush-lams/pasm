@@ -11,7 +11,7 @@ fn main() {
         process::exit(1);
     });
     if let Err(err) = pasm::run(query) {
-        eprintln!("application error!: {err}");
+        eprintln!("application error!: {err}");// erro ri snic eini t?
         process::exit(1);
     }}
     else{

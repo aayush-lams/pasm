@@ -1,4 +1,4 @@
-use pasm::Config;
+use pasm::utils::types::Config;
 use std::env;
 use std::process;
 use colored::*;

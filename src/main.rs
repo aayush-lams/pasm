@@ -3,9 +3,9 @@ use std::env;
 use std::process;
 use colored::*;
 fn main() {
-    //std::process::Command::new("clear").status().expect("error clearning screen");
     let args: Vec<String> = env::args().collect();
     if args.len()==2 || args.len()==3{
+
     let query = Config::new(&args).unwrap_or_else(|some_err| {
         eprintln!("problem parsing arguments: {some_err}");
         process::exit(1);

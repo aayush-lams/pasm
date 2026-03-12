@@ -1,11 +1,147 @@
 # pasm
-A minimal credential manager
-## How to use
-pasm is minimal and thus really simple to use. 
-  - use `pasm write .` to start writing a new entry. It creates a new 'pasmuser0.txt' file in '~' if not already there and writes into it
-  - use `pasm display .` to display all the entries inside the 'pasmuser0.txt' file
-  - use `pasm find [entry_name]` to find and display content of particular entry. For eg: `pasm find github` displays entry content with 'discord' name
-  - use `pasm edit [entry_name]` to edit particular entry
-  - use `pasm remove [filename]` to remove current file. For eg `pasm remove pasmuser0.txt` removes the 'pasmuser0.txt' file
-  - use `pasm delete [entry_name]` to remove particular entry
-  - use `pasm help .` to display list of command
+
+**pasm** is a minimal password/credential manager backend written in Rust.
+It exposes a REST API that allows authenticated users to create, retrieve, modify, and delete credential entries.
+
+The goal of this project is to learn and create a secure locally hosted backend for credential management.
+
+---
+
+## Features
+
+* REST API for credential storage
+* API key authentication
+* Encrypted entry storage
+* CRUD operations for credential entries
+* Environment-based secret management
+* Simple architecture for experimentation and learning
+
+---
+
+## Architecture
+
+The server exposes a small REST API that manages credential entries.
+
+```
+Client (curl / CLI)
+      │
+      ▼
+Rust API Server
+      │
+Authentication Middleware
+      │
+Entry Handlers
+      │
+Encrypted Storage
+```
+
+Routes are implemented using a router layer and protected by authentication middleware.
+
+---
+
+## Running the Server
+
+First set required environment variables:
+
+```
+export API_KEY=my_hash123
+export ENCRYPTION_KEY=my_encryption_key
+```
+
+Then start the server:
+
+```
+cargo run --bin pasm_server
+```
+
+The API will run on:
+
+```
+http://127.0.0.1:3000
+```
+
+---
+
+## Authentication
+
+All protected endpoints require an API key in the request header:
+
+```
+Authorization: Bearer <API_KEY>
+```
+
+Example:
+
+```
+Authorization: Bearer my_hash123
+```
+
+---
+
+## API Usage
+
+### List Entries
+
+```
+curl http://127.0.0.1:3000/entries \
+-H "Authorization: Bearer my_hash123"
+```
+
+---
+
+### Create Entry
+
+```
+curl -X POST http://127.0.0.1:3000/entry \
+-H "Authorization: Bearer my_hash123" \
+-d '{"name":"github","username":"user","password":"secret"}'
+```
+
+---
+
+### Find Entry
+
+```
+curl http://127.0.0.1:3000/entry/github \
+-H "Authorization: Bearer my_hash123"
+```
+
+---
+
+### Update Entry
+
+```
+curl -X POST http://127.0.0.1:3000/entry/amend \
+-H "Authorization: Bearer my_hash123" \
+-d '{ ... }'
+```
+
+---
+
+### Delete Entry
+
+```
+curl -X DELETE http://127.0.0.1:3000/entry/github \
+-H "Authorization: Bearer my_hash123"
+```
+
+---
+
+## Security Notes
+
+* Entries are encrypted using a server-side encryption key.
+* API access requires a bearer token defined by `API_KEY`.
+
+This project is intended for experimentation and learning secure backend practices.
+
+---
+
+## Future Improvements
+
+Possible improvements include:
+
+* JWT-based authentication
+* rate limiting
+* audit logging
+* CLI client
+* containerized deployment

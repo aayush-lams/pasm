@@ -1,4 +1,4 @@
-use std::{env, path::Path, sync::Arc};
+use std::{env, path::Path, sync::Arc, thread, time::Duration};
 
 use axum::{
     middleware,
@@ -21,13 +21,36 @@ pub mod auth;
 /// It loads runtime variables, defines routes and starts listener and starts server
 pub async fn run() {
     dotenv().ok();
-    let api_key = env::var("API_KEY").expect("API_KEY must be set");
+    let api_key = match env::var("API_KEY") {
+        Ok(k) => k,
+        Err(err) => {
+            println!("could not find api key : {err:?}");
+            thread::sleep(Duration::from_secs(3));
+            return;
+        }
+    };
     let shared_api_key = Arc::new(api_key);
 
-    let encryption_key = env::var("ENCRYPTION_KEY").expect("encryption key must be set");
+    let encryption_key = match env::var("ENCRYPTION_KEY") {
+        Ok(k) => k,
+        Err(err) => {
+            println!("could not find api key : {err:?}");
+            thread::sleep(Duration::from_secs(3));
+            return;
+        }
+    };
+
     let shared_encr_key = Arc::new(encryption_key);
 
-    let home_dir = env::var("HOME").expect(&"failed to get home directory");
+    let home_dir = match env::var("HOME") {
+        Ok(home) => home,
+        Err(err) => {
+            println!("could not find api key : {err:?}");
+            thread::sleep(Duration::from_secs(3));
+            return;
+        }
+    };
+
     let filepath = Path::new(&home_dir)
         .join(".config")
         .join("path")
@@ -52,7 +75,7 @@ pub async fn run() {
     let public_routes = Router::new();
 
     let app = public_routes.merge(protected_routes);
-    let listener = TcpListener::bind("127.0.0.1:3000").await.unwrap();
+    let listener = TcpListener::bind("0.0.0.0:3000").await.unwrap();
     println!("Server listening at : {:#?}", &listener);
     axum::serve(listener, app).await.unwrap();
 }

@@ -1,147 +1,62 @@
 # pasm
 
-**pasm** is a minimal password/credential manager backend written in Rust.
-It exposes a REST API that allows authenticated users to create, retrieve, modify, and delete credential entries.
-
-The goal of this project is to learn and create a secure locally hosted backend for credential management.
+A minimal password manager backend written in Rust. Exposes a REST API for storing and managing encrypted credentials, secured behind API key authentication.
 
 ---
 
-## Features
+## Stack
 
-* REST API for credential storage
-* API key authentication
-* Encrypted entry storage
-* CRUD operations for credential entries
-* Environment-based secret management
-* Simple architecture for experimentation and learning
+- **Rust** — Axum for routing, Sled as embedded database
+- **AES-256** encryption for stored entries
+- **Bearer token** authentication middleware
 
 ---
 
-## Architecture
+## Running with Docker
 
-The server exposes a small REST API that manages credential entries.
-
+```bash
+docker run -d \
+  -p 3000:3000 \
+  -e API_KEY=your_key \
+  -e ENCRYPTION_KEY=your_encryption_key \
+  --name pasm \
+  aayushlam/pasm
 ```
-Client (curl / CLI)
-      │
-      ▼
-Rust API Server
-      │
-Authentication Middleware
-      │
-Entry Handlers
-      │
-Encrypted Storage
-```
-
-Routes are implemented using a router layer and protected by authentication middleware.
 
 ---
 
-## Running the Server
+## API
 
-First set required environment variables:
+All endpoints require `Authorization: Bearer <API_KEY>`.
 
+| Method | Route | Description |
+|--------|-------|-------------|
+| GET | `/entries` | List all entries |
+| GET | `/entry/<name>` | Find entry by name |
+| POST | `/entry` | Create entry |
+| POST | `/entry/amend` | Update entry |
+| DELETE | `/entry/<name>` | Delete entry |
+
+### Example
+
+```bash
+# Create
+curl -X POST http://localhost:3000/entry \
+  -H "Authorization: Bearer your_key" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"github","site":"github.com","uname":"user","pword":"secret","note":""}'
+
+# List
+curl http://localhost:3000/entries \
+  -H "Authorization: Bearer your_key"
 ```
-export API_KEY=my_hash123
-export ENCRYPTION_KEY=my_encryption_key
-```
 
-Then start the server:
+---
 
-```
+## Running from source
+
+```bash
+export API_KEY=your_key
+export ENCRYPTION_KEY=your_encryption_key
 cargo run --bin pasm_server
 ```
-
-The API will run on:
-
-```
-http://127.0.0.1:3000
-```
-
----
-
-## Authentication
-
-All protected endpoints require an API key in the request header:
-
-```
-Authorization: Bearer <API_KEY>
-```
-
-Example:
-
-```
-Authorization: Bearer my_hash123
-```
-
----
-
-## API Usage
-
-### List Entries
-
-```
-curl http://127.0.0.1:3000/entries \
--H "Authorization: Bearer my_hash123"
-```
-
----
-
-### Create Entry
-
-```
-curl -X POST http://127.0.0.1:3000/entry \
--H "Authorization: Bearer my_hash123" \
--d '{"name":"github","username":"user","password":"secret"}'
-```
-
----
-
-### Find Entry
-
-```
-curl http://127.0.0.1:3000/entry/github \
--H "Authorization: Bearer my_hash123"
-```
-
----
-
-### Update Entry
-
-```
-curl -X POST http://127.0.0.1:3000/entry/amend \
--H "Authorization: Bearer my_hash123" \
--d '{ ... }'
-```
-
----
-
-### Delete Entry
-
-```
-curl -X DELETE http://127.0.0.1:3000/entry/github \
--H "Authorization: Bearer my_hash123"
-```
-
----
-
-## Security Notes
-
-* Entries are encrypted using a server-side encryption key.
-* API access requires a bearer token defined by `API_KEY`.
-
-This project is intended for experimentation and learning secure backend practices.
-
----
-
-## Future Improvements
-
-Possible improvements include:
-
-* JWT-based authentication
-* rate limiting
-* audit logging
-* CLI client
-* containerized deployment

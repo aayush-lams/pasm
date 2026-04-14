@@ -5,5 +5,5 @@ use crate::types::db::PasmDb;
 #[derive(Clone)]
 pub struct PasmState {
     pub db: PasmDb,
-    pub auth_key: String,
+    // pub auth_key: String,
 }

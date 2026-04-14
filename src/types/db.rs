@@ -15,12 +15,6 @@ use crate::types::{entry::RequestData, error::PasmResult};
 /// - `{user_id}` tree: Contains encrypted password entries for each user
 ///   - Key: `entry:{entry_name}`
 ///   - Value: Encrypted entry data
-///
-/// # Example
-/// ```
-/// let db = sled::open("path/to/db").unwrap();
-/// let pasm_db = PasmDb::new(db);
-/// ```
 #[derive(Clone)]
 pub struct PasmDb {
     db: Db,
@@ -420,5 +414,35 @@ impl PasmDb {
             Ok(_) => PasmResult::ServerStatus(StatusCode::OK, "".to_string()),
             Err(err) => PasmResult::DatabaseError { err },
         }
+    }
+
+    /// Lists all users in the database.
+    ///
+    /// Returns a vector of all auth keys and their associated user IDs.
+    ///
+    /// # Returns
+    /// * `Ok(Vec<RequestData>)` - All users with auth_key as key and user_id as value
+    ///
+    /// # Errors
+    /// * `PasmResult::DatabaseError` - If the database iteration fails
+    /// * `PasmResult::UTF8ConversionError` - If keys or values are invalid UTF-8
+    pub fn list_users(&self) -> Result<Vec<RequestData>, PasmResult> {
+        let users = self.users()?;
+        let mut result: Vec<RequestData> = Vec::new();
+
+        for item in users.iter() {
+            let (key, value) = item.map_err(|e| PasmResult::DatabaseError { err: e })?;
+            let auth_key = String::from_utf8(key.to_vec())
+                .map_err(|e| PasmResult::UTF8ConversionError { err: e })?;
+            let user_id = String::from_utf8(value.to_vec())
+                .map_err(|e| PasmResult::UTF8ConversionError { err: e })?;
+
+            result.push(RequestData {
+                key: auth_key,
+                value: user_id,
+            });
+        }
+
+        Ok(result)
     }
 }

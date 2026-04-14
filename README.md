@@ -26,25 +26,43 @@ docker run --rm -p 3000:3000 -e API_KEY="your_key" pasm
 
 ## API
 
-All endpoints require `Authorization: Bearer <API_KEY>`.
+All endpoints except `/auth/register` require `Authorization: Bearer <API_KEY>`.
 
 | Method | Route | Description |
 |--------|-------|-------------|
+| POST | `/auth/register` | Register new user |
+| GET | `/auth/list` | List all users |
+| POST | `/auth/update` | Update auth key |
+| DELETE | `/auth/remove` | Remove user |
 | GET | `/entries` | List all entries |
-| GET | `/entry/<name>` | Find entry by name |
 | POST | `/entry` | Create entry |
 | POST | `/entry/amend` | Update entry |
+| GET | `/entry/<name>` | Find entry by name |
 | DELETE | `/entry/<name>` | Delete entry |
 
 ### Example
 
 ```bash
+# Register new user (no payload needed, uses server API_KEY)
+curl -X POST -H "Authorization: Bearer $API_KEY" http://localhost:3000/auth/register
+
+# List all users
+curl -H "Authorization: Bearer $API_KEY" http://localhost:3000/auth/list
+
+# Update auth key (value = new auth key)
+curl -X POST -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
+  -d '{"key":"","value":"new-auth-key"}' \
+  http://localhost:3000/auth/update
+
+# Remove user (deletes user and all entries)
+curl -X DELETE -H "Authorization: Bearer $API_KEY" http://localhost:3000/auth/remove
+
 # List all entries
 curl -H "Authorization: Bearer $API_KEY" http://localhost:3000/entries
 
-# Create entry
+# Create entry (key = entry name, value = encrypted data)
 curl -X POST -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
-  -d '{"entry_name":"github","entry":"encrypted-data-here"}' \
+  -d '{"key":"github","value":"encrypted-data-here"}' \
   http://localhost:3000/entry
 
 # Find entry by name
@@ -53,9 +71,9 @@ curl -H "Authorization: Bearer $API_KEY" http://localhost:3000/entry/github
 # Delete entry
 curl -X DELETE -H "Authorization: Bearer $API_KEY" http://localhost:3000/entry/github
 
-# Amend entry
+# Amend entry (updates existing or creates new)
 curl -X POST -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
-  -d '{"entry_name":"github","entry":"new-encrypted-data"}' \
+  -d '{"key":"github","value":"new-encrypted-data"}' \
   http://localhost:3000/entry/amend
 ```
 

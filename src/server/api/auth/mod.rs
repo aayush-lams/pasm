@@ -1,3 +1,3 @@
 pub mod register;
-pub mod update;
 pub mod remove;
+pub mod update;

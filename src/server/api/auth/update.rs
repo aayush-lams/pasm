@@ -1,4 +1,4 @@
-use axum::{extract::State, response::IntoResponse, Json};
+use axum::{extract::State, response::IntoResponse, Extension, Json};
 
 use crate::types::{entry::RequestData, state::PasmState};
 
@@ -7,11 +7,12 @@ use crate::types::{entry::RequestData, state::PasmState};
 /// Replaces the existing auth key with a new one provided in the payload.
 pub async fn call(
     State(state): State<PasmState>,
+    Extension(uid): Extension<String>,
     Json(payload): Json<RequestData>,
 ) -> impl IntoResponse {
     let db = &state.db;
-    let auth_key = &state.auth_key;
     let new_auth = &payload.value;
 
-    db.update_auth(auth_key, new_auth).into_response()
+    println!("updated user!");
+    db.update_auth(&uid, &new_auth).into_response()
 }

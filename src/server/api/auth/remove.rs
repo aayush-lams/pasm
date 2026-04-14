@@ -1,4 +1,4 @@
-use axum::{extract::State, response::IntoResponse};
+use axum::{extract::State, response::IntoResponse, Extension};
 
 use crate::types::state::PasmState;
 
@@ -6,9 +6,12 @@ use crate::types::state::PasmState;
 ///
 /// This endpoint deletes the user's authentication key and their entire
 /// encrypted password entry tree.
-pub async fn call(State(state): State<PasmState>) -> impl IntoResponse {
+pub async fn call(
+    Extension(uid): Extension<String>,
+    State(state): State<PasmState>,
+) -> impl IntoResponse {
     let db = &state.db;
-    let auth_key = &state.auth_key;
 
-    db.remove_user(auth_key).into_response()
+    println!("removed user!");
+    db.remove_user(&uid).into_response()
 }

@@ -5,18 +5,28 @@ use axum::{
     Json,
 };
 
-use crate::{types::PasmState, utils::helper_fxns::deserialize_entry};
+use crate::types::state::PasmState;
 
 /// This function finds specified entry in the database and returns the Json content
-/// If key doesnot exist, return Error:404, `NOT_FOUND`
+/// `#Error`
+/// * Error:404, `NOT_FOUND` if key doesnt exist
+/// * Error::500, `INTERNAL_SERVER_ERROR` if decryption failed
 pub async fn call(Path(name): Path<String>, State(state): State<PasmState>) -> impl IntoResponse {
-    let db = state.db;
-    let passkey = state.encr_key;
-    let key = format!("entry:{}", name);
-    if let Some(entry) = db.get(key).unwrap() {
-        let result = deserialize_entry(entry, passkey.to_string());
-        Json(result).into_response()
-    } else {
-        (StatusCode::NOT_FOUND, "Entry not found").into_response()
-    }
+    let db = &state.db;
+    let auth_key = &state.auth_key;
+
+    let user_id = match db.get_user_id_by_authkey(auth_key) {
+        Ok(id) => id,
+        Err(err) => {
+            let error = format!("{err:?}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, error).into_response();
+        }
+    };
+
+    let result = match db.get_entry(&user_id, &name) {
+        Ok(entries) => entries,
+        // better error handling, error also contains rest error
+        Err(err) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("{:#?}", err)).into_response(),
+    };
+    Json(result).into_response()
 }

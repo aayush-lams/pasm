@@ -15,12 +15,11 @@ A minimal password manager backend written in Rust. Exposes a REST API for stori
 ## Running with Docker
 
 ```bash
-docker run -d \
-  -p 3000:3000 \
-  -e API_KEY=your_key \
-  -e ENCRYPTION_KEY=your_encryption_key \
-  --name pasm \
-  aayushlam/pasm
+docker run --rm -p 3000:3000 -e API_KEY="your_key" --name pasm aayushlam/pasm
+```
+or
+```bash
+docker run --rm -p 3000:3000 -e API_KEY="your_key" pasm
 ```
 
 ---
@@ -40,15 +39,24 @@ All endpoints require `Authorization: Bearer <API_KEY>`.
 ### Example
 
 ```bash
-# Create
-curl -X POST http://localhost:3000/entry \
-  -H "Authorization: Bearer your_key" \
-  -H "Content-Type: application/json" \
-  -d '{"name":"github","site":"github.com","uname":"user","pword":"secret","note":""}'
+# List all entries
+curl -H "Authorization: Bearer $API_KEY" http://localhost:3000/entries
 
-# List
-curl http://localhost:3000/entries \
-  -H "Authorization: Bearer your_key"
+# Create entry
+curl -X POST -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
+  -d '{"entry_name":"github","entry":"encrypted-data-here"}' \
+  http://localhost:3000/entry
+
+# Find entry by name
+curl -H "Authorization: Bearer $API_KEY" http://localhost:3000/entry/github
+
+# Delete entry
+curl -X DELETE -H "Authorization: Bearer $API_KEY" http://localhost:3000/entry/github
+
+# Amend entry
+curl -X POST -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
+  -d '{"entry_name":"github","entry":"new-encrypted-data"}' \
+  http://localhost:3000/entry/amend
 ```
 
 ---

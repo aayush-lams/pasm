@@ -1,12 +1,12 @@
 use axum::{
     body::Body,
     extract::State,
-    http::{header::AUTHORIZATION, Request, StatusCode},
+    http::{Request, StatusCode, header::AUTHORIZATION},
     middleware::Next,
     response::Response,
 };
 
-use crate::types::PasmState;
+use crate::types::state::PasmState;
 
 /// This function handles authentication for server requests.
 /// It takes `State<PasmState>`, request body for header.
@@ -16,13 +16,19 @@ pub async fn call(
     req: Request<Body>,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    let api_key = state.api_key;
+    let auth_key = state.auth_key;
     let auth_header = req
         .headers()
         .get(AUTHORIZATION)
         .and_then(|value| value.to_str().ok());
     match auth_header {
-        Some(value) if value == format!("Bearer {}", api_key) => Ok(next.run(req).await),
-        _ => Err(StatusCode::UNAUTHORIZED),
+        Some(value) if value == format!("Bearer {}", auth_key) => {
+            println!("verified user");
+            Ok(next.run(req).await)
+        }
+        _ => {
+            println!("failed to authorised!");
+            Err(StatusCode::UNAUTHORIZED)
+        }
     }
 }

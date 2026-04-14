@@ -1,4 +1,4 @@
-use std::{env, path::Path, sync::Arc, thread, time::Duration};
+use std::{env, path::Path, thread, time::Duration};
 
 use axum::{
     middleware,
@@ -10,8 +10,8 @@ use sled::Db;
 use tokio::net::TcpListener;
 
 use crate::{
-    server::api::{amend, create, delete, find, list},
-    types::PasmState,
+    server::api::{amend, auth::{register, remove, update}, create, delete, find, list},
+    types::{db::PasmDb, state::PasmState},
 };
 
 pub mod api;
@@ -21,7 +21,7 @@ pub mod auth;
 /// It loads runtime variables, defines routes and starts listener and starts server
 pub async fn run() {
     dotenv().ok();
-    let api_key = match env::var("API_KEY") {
+    let auth_key = match env::var("API_KEY") {
         Ok(k) => k,
         Err(err) => {
             println!("could not find api key : {err:?}");
@@ -29,23 +29,11 @@ pub async fn run() {
             return;
         }
     };
-    let shared_api_key = Arc::new(api_key);
-
-    let encryption_key = match env::var("ENCRYPTION_KEY") {
-        Ok(k) => k,
-        Err(err) => {
-            println!("could not find api key : {err:?}");
-            thread::sleep(Duration::from_secs(3));
-            return;
-        }
-    };
-
-    let shared_encr_key = Arc::new(encryption_key);
 
     let home_dir = match env::var("HOME") {
         Ok(home) => home,
         Err(err) => {
-            println!("could not find api key : {err:?}");
+            println!("could not grab HOME dir : {err:?}");
             thread::sleep(Duration::from_secs(3));
             return;
         }
@@ -59,9 +47,8 @@ pub async fn run() {
     let db: Db = sled::open(filepath).expect(&"failed to open database!");
 
     let state = PasmState {
-        db,
-        api_key: shared_api_key,
-        encr_key: shared_encr_key,
+        db: PasmDb::new(db),
+        auth_key: auth_key,
     };
 
     let protected_routes = Router::new()
@@ -69,8 +56,11 @@ pub async fn run() {
         .route("/entry", post(create::call))
         .route("/entry/amend", post(amend::call))
         .route("/entry/{name}", delete(delete::call).get(find::call))
+        .route("/auth/register", post(register::call))
+        .route("/auth/update", post(update::call))
+        .route("/auth/remove", delete(remove::call))
         .with_state(state.clone())
-        .layer(middleware::from_fn_with_state(state.clone(), auth::call));
+        .layer(middleware::from_fn_with_state(state.clone(), auth::call)); // probable layers : cors, ratelimit, logging
 
     let public_routes = Router::new();
 

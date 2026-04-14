@@ -18,3 +18,4 @@ magic-crypt = "3.1.6"
 sled = "0.34"
 colored = "2.0"
 dotenv = "0.15.0"
+uuid = { version = "1", default-features = false, features = ["v4"] }

@@ -1,23 +1,23 @@
-use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
+use axum::{extract::State, http::StatusCode, response::IntoResponse, Extension, Json};
 
-use crate::{
-    types::{Details, PasmState},
-    utils::helper_fxns::serialize_entry,
-};
+use crate::types::{entry::RequestData, state::PasmState};
 
 /// This function edits the content to sled database
 /// if value already exists in databse overwrites it else return error:404, `NOT_FOUND`
 pub async fn call(
     State(state): State<PasmState>,
-    Json(payload): Json<Details>,
+    Extension(auth_key): Extension<String>,
+    Json(payload): Json<RequestData>,
 ) -> impl IntoResponse {
-    let db = state.db;
-    let passkey = state.encr_key;
-    let name = format!("entry:{}", payload.name);
-    if let Some(_) = db.get(name.clone()).unwrap() {
-        let crypt_text = serialize_entry(payload, passkey.to_string());
-        db.insert(name, crypt_text.as_bytes()).unwrap();
-        return (StatusCode::CREATED, "Updated the entry").into_response();
+    let db = &state.db;
+
+    let user = match db.get_user_id_by_authkey(&auth_key) {
+        Ok(user_id) => user_id,
+        Err(err) => return err.into_response(),
+    };
+
+    if let Err(err) = db.amend_entry(&user, &payload.key, payload.value) {
+        return err.into_response();
     }
-    (StatusCode::NOT_FOUND, "Key not found").into_response()
+    (StatusCode::OK, "Entry updated").into_response()
 }

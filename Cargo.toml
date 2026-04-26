@@ -18,3 +18,14 @@ magic-crypt = "3.1.6"
 sled = "0.34"
 colored = "2.0"
 dotenv = "0.15.0"
+uuid = { version = "1", default-features = false, features = ["v4"] }
+ratatui = "0.29"
+crossterm = "0.29"
+
+[[bin]]
+name = "pasm_server"
+path = "src/bin/pasm_server.rs"
+
+[[bin]]
+name = "pasm_client"
+path = "src/bin/pasm_client.rs"

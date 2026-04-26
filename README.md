@@ -14,10 +14,10 @@ A minimal password manager backend written in Rust. Exposes a REST API for stori
 
 ## Running with Docker
 
-```bash
-docker run --rm -p 3000:3000 -e API_KEY="your_key" --name pasm aayushlam/pasm
-```
-or
+<!-- ```bash -->
+<!-- docker run --rm -p 3000:3000 -e API_KEY="your_key" --name pasm aayushlam/pasm -->
+<!-- ``` -->
+<!-- or -->
 ```bash
 docker run --rm -p 3000:3000 -e API_KEY="your_key" pasm
 ```
@@ -44,7 +44,7 @@ All endpoints except `/auth/register` require `Authorization: Bearer <API_KEY>`.
 
 ```bash
 # Register new user (no payload needed, uses server API_KEY)
-curl -X POST -H "Authorization: Bearer $API_KEY" http://localhost:3000/auth/register
+curl -X POST -H "Authorization: Bearer $API_KEY" http://localhost:3000/auth
 
 # List all users
 curl -H "Authorization: Bearer $API_KEY" http://localhost:3000/auth/list
@@ -82,7 +82,10 @@ curl -X POST -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/j
 ## Running from source
 
 ```bash
-export API_KEY=your_key
-export ENCRYPTION_KEY=your_encryption_key
-cargo run --bin pasm_server
+API_KEY=<API_KEY> cargo run --bin pasm_server
+```
+and for client
+
+```bash
+cargo run --bin pasm_client <API_KEY>
 ```

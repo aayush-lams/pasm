@@ -311,7 +311,7 @@ impl PasmDb {
             None as Option<&[u8]>,
             Some(user_id.as_bytes()),
         ) {
-            Ok(Ok(_)) => PasmResult::ServerStatus(StatusCode::OK, "".to_string()),
+            Ok(Ok(_)) => PasmResult::ServerStatus(StatusCode::OK, "registered new authentication token!".to_string()),
             Ok(Err(_)) => PasmResult::ServerStatus(
                 StatusCode::CONFLICT,
                 "auth key already exists".to_string(),
@@ -426,21 +426,16 @@ impl PasmDb {
     /// # Errors
     /// * `PasmResult::DatabaseError` - If the database iteration fails
     /// * `PasmResult::UTF8ConversionError` - If keys or values are invalid UTF-8
-    pub fn list_users(&self) -> Result<Vec<RequestData>, PasmResult> {
+    pub fn list_users(&self) -> Result<Vec<String>, PasmResult> {
         let users = self.users()?;
-        let mut result: Vec<RequestData> = Vec::new();
+        let mut result: Vec<String> = Vec::new();
 
         for item in users.iter() {
-            let (key, value) = item.map_err(|e| PasmResult::DatabaseError { err: e })?;
+            let (key, _) = item.map_err(|e| PasmResult::DatabaseError { err: e })?;
             let auth_key = String::from_utf8(key.to_vec())
                 .map_err(|e| PasmResult::UTF8ConversionError { err: e })?;
-            let user_id = String::from_utf8(value.to_vec())
-                .map_err(|e| PasmResult::UTF8ConversionError { err: e })?;
 
-            result.push(RequestData {
-                key: auth_key,
-                value: user_id,
-            });
+            result.push( auth_key );
         }
 
         Ok(result)

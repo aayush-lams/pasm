@@ -4,7 +4,7 @@ use crate::types::state::PasmState;
 
 /// Lists all users in the database.
 pub async fn call(
-    Extension(auth_key): Extension<String>,
+    Extension(_auth_key): Extension<String>,
     State(state): State<PasmState>,
 ) -> impl IntoResponse {
     let db = &state.db;

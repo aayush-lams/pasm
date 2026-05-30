@@ -1,9 +1,7 @@
 use crate::types::db::PasmDb;
 
-/// It is an axum state
-/// It holds databse and keys at runtime
+/// Axum application state holding the database handle.
 #[derive(Clone)]
 pub struct PasmState {
     pub db: PasmDb,
-    // pub auth_key: String,
 }

@@ -1,4 +1,4 @@
-use axum::{extract::State, response::IntoResponse, Json, Extension};
+use axum::{extract::State, response::IntoResponse, Extension, Json};
 
 use crate::types::state::PasmState;
 

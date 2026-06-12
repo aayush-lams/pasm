@@ -25,15 +25,6 @@ pub mod auth;
 /// It loads runtime variables, defines routes and starts listener and starts server
 pub async fn run() {
     dotenv().ok();
-    let _auth_key = match env::var("API_KEY") {
-        Ok(k) => k,
-        Err(err) => {
-            println!("could not find api key : {err:?}");
-            thread::sleep(Duration::from_secs(3));
-            return;
-        }
-    };
-
     let home_dir = match env::var("HOME") {
         Ok(home) => home,
         Err(err) => {
@@ -45,14 +36,13 @@ pub async fn run() {
 
     let filepath = Path::new(&home_dir)
         .join(".config")
-        .join("path")
+        .join("pasm")
         .join("database");
 
     let db: Db = sled::open(filepath).expect(&"failed to open database!");
 
     let state = PasmState {
         db: PasmDb::new(db),
-        // auth_key: auth_key,
     };
 
     let protected_routes = Router::new()

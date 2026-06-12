@@ -275,7 +275,8 @@ impl PasmDb {
         encrypted_data: String,
     ) -> Result<(), PasmResult> {
         let tree = self.user_tree(user_id)?;
-        match tree.insert(entry_name.as_bytes(), encrypted_data.as_bytes()) {
+        let key = format!("entry:{}", entry_name);
+        match tree.insert(key.as_bytes(), encrypted_data.as_bytes()) {
             Ok(Some(_)) => Err(PasmResult::ServerStatus(
                 StatusCode::CREATED,
                 "new entry created !".to_string(),
@@ -311,7 +312,10 @@ impl PasmDb {
             None as Option<&[u8]>,
             Some(user_id.as_bytes()),
         ) {
-            Ok(Ok(_)) => PasmResult::ServerStatus(StatusCode::OK, "registered new authentication token!".to_string()),
+            Ok(Ok(_)) => PasmResult::ServerStatus(
+                StatusCode::OK,
+                "registered new authentication token!".to_string(),
+            ),
             Ok(Err(_)) => PasmResult::ServerStatus(
                 StatusCode::CONFLICT,
                 "auth key already exists".to_string(),
@@ -435,7 +439,7 @@ impl PasmDb {
             let auth_key = String::from_utf8(key.to_vec())
                 .map_err(|e| PasmResult::UTF8ConversionError { err: e })?;
 
-            result.push( auth_key );
+            result.push(auth_key);
         }
 
         Ok(result)

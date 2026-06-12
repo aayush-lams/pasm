@@ -1,6 +1,6 @@
 use axum::{extract::State, response::IntoResponse, Extension, Json};
 
-use crate::types::{entry::RequestData, state::PasmState};
+use crate::types::{db::Db, entry::RequestData, state::PasmState};
 
 /// Updates the authentication key for the current user.
 ///
@@ -14,5 +14,5 @@ pub async fn call(
     let new_auth = &payload.value;
 
     println!("updated user!");
-    db.update_auth(&uid, &new_auth).into_response()
+    db.update_auth(&uid, new_auth).await.into_response()
 }

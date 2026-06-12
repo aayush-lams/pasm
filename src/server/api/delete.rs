@@ -5,7 +5,7 @@ use axum::{
     Extension,
 };
 
-use crate::types::state::PasmState;
+use crate::types::{db::Db, state::PasmState};
 
 /// This function deletes specified entry in the database
 /// if key doesnot exist return Error:404, `NOT_FOUND`
@@ -16,12 +16,12 @@ pub async fn call(
 ) -> impl IntoResponse {
     let db = &state.db;
 
-    let user_id = match db.get_user_id_by_authkey(&auth_key) {
+    let user_id = match db.get_user_id_by_authkey(&auth_key).await {
         Ok(id) => id,
         Err(err) => return err.into_response(),
     };
 
-    if let Err(err) = db.remove_entry(&user_id, &name) {
+    if let Err(err) = db.remove_entry(&user_id, &name).await {
         return err.into_response();
     }
 

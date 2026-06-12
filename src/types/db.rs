@@ -1,198 +1,249 @@
 use axum::http::StatusCode;
-use sled::Db;
-use uuid::Uuid;
+use sqlx::Row;
+use sqlx::{postgres::PgPoolOptions, PgPool};
 
 use crate::types::{entry::RequestData, error::PasmResult};
 
-/// A wrapper around the `sled` embedded database.
+/// Database operations trait.
 ///
-/// Provides password entry management with user isolation and encrypted storage.
-///
-/// # Database Structure
-/// The database is organized as follows:
-///
-/// - `users` tree: Maps authentication keys to user IDs
-/// - `{user_id}` tree: Contains encrypted password entries for each user
-///   - Key: `entry:{entry_name}`
-///   - Value: Encrypted entry data
-#[derive(Clone)]
-pub struct PasmDb {
-    db: Db,
-}
+/// Abstracts all persistence operations so the rest of the application is
+/// agnostic about the database backend. Currently implemented by [`PgDb`].
+#[async_trait::async_trait]
+pub trait Db: Send + Sync + 'static {
+    /// Health check: verifies the database is reachable.
+    async fn ping(&self) -> Result<(), PasmResult>;
 
-impl PasmDb {
-    /// Creates a new `PasmDb` wrapper around an existing `sled::Db` instance.
-    ///
-    /// # Arguments
-    /// * `db` - An open sled database connection
-    ///
-    /// # Returns
-    /// A new `PasmDb` instance wrapping the provided database
-    pub fn new(db: Db) -> Self {
-        Self { db }
-    }
+    /// Looks up a user ID by their authentication key.
+    async fn get_user_id_by_authkey(&self, authkey: &str) -> Result<String, PasmResult>;
 
-    /// Opens the `users` tree from the database.
-    ///
-    /// The users tree stores the mapping between authentication keys and user IDs.
-    ///
-    /// # Returns
-    /// * `Ok(sled::Tree)` - The users tree on success
-    ///
-    /// # Errors
-    /// * `PasmResult::DatabaseError` - If the tree cannot be opened
-    pub fn users(&self) -> Result<sled::Tree, PasmResult> {
-        self.db
-            .open_tree("users")
-            .map_err(|e| PasmResult::DatabaseError { err: e })
-    }
+    /// Checks whether a given authentication key exists in the database.
+    async fn auth_key_exists(&self, authkey: &str) -> Result<bool, PasmResult>;
 
-    /// Retrieves a user ID associated with the given authentication key.
-    ///
-    /// # Arguments
-    /// * `authkey` - The authentication key (Bearer token)
-    ///
-    /// # Returns
-    /// * `Ok(String)` - The user ID associated with the key
-    ///
-    /// # Errors
-    /// * `PasmResult::ServerStatus(NOT_FOUND)` - If the auth key is not found
-    /// * `PasmResult::UTF8ConversionError` - If the stored user ID is invalid UTF-8
-    pub fn get_user_id_by_authkey(&self, authkey: &str) -> Result<String, PasmResult> {
-        let users = self.users()?;
-        let user_id = users
-            .get(authkey.as_bytes())
-            .map_err(|e| PasmResult::ServerStatus(StatusCode::NOT_FOUND, e.to_string()))?;
+    /// Registers a new authentication key, returning a generated user ID.
+    async fn register_auth(&self, auth_key: &str) -> PasmResult;
 
-        let u_id = match user_id {
-            Some(ivec) => String::from_utf8(ivec.to_vec()),
-            None => {
-                return Err(PasmResult::ServerStatus(
-                    StatusCode::NOT_FOUND,
-                    "user_id not found".to_string(),
-                ))
-            }
-        };
+    /// Replaces an old authentication key with a new one.
+    async fn update_auth(&self, auth_key: &str, new_auth: &str) -> PasmResult;
 
-        match u_id {
-            Ok(res) => Ok(res),
-            Err(e) => Err(PasmResult::UTF8ConversionError { err: e }),
-        }
-    }
+    /// Removes a user and all their entries.
+    async fn remove_user(&self, auth_key: &str) -> PasmResult;
 
-    /// Associates an authentication key with a user ID in the database.
-    ///
-    /// # Arguments
-    /// * `authkey` - The authentication key (Bearer token)
-    /// * `user_id` - The user identifier to store
-    ///
-    /// # Returns
-    /// * `Ok(())` - On successful insertion
-    ///
-    /// # Errors
-    /// * `PasmResult::DatabaseError` - If the insertion fails
-    pub fn set_user(&self, authkey: &str, user_id: &str) -> Result<(), PasmResult> {
-        let tree = self.users()?;
-        tree.insert(authkey.as_bytes(), user_id.as_bytes())
-            .map_err(|e| PasmResult::DatabaseError { err: e })?;
-        Ok(())
-    }
+    /// Lists every registered authentication key.
+    async fn list_users(&self) -> Result<Vec<String>, PasmResult>;
 
-    /// Opens the tree for a specific user, identified by their user ID.
-    ///
-    /// Each user has their own isolated tree for storing encrypted password entries.
-    ///
-    /// # Arguments
-    /// * `user_id` - The unique identifier for the user
-    ///
-    /// # Returns
-    /// * `Ok(sled::Tree)` - The user's entry tree
-    ///
-    /// # Errors
-    /// * `PasmResult::DatabaseError` - If the tree cannot be opened
-    pub fn user_tree(&self, user_id: &str) -> Result<sled::Tree, PasmResult> {
-        self.db
-            .open_tree(user_id)
-            .map_err(|e| PasmResult::DatabaseError { err: e })
-    }
-
-    /// Adds a new encrypted password entry for a user.
-    ///
-    /// Uses compare-and-swap to ensure no existing entry with the same name is overwritten.
-    ///
-    /// # Arguments
-    /// * `user_id` - The user to add the entry for
-    /// * `entry_name` - A unique identifier for this entry (e.g., "github", "gmail")
-    /// * `encrypted_data` - The AES-256 encrypted entry data
-    ///
-    /// # Returns
-    /// * `Ok(())` - On successful creation
-    ///
-    /// # Errors
-    /// * `PasmResult::ServerStatus(CONFLICT)` - If an entry with this name already exists
-    /// * `PasmResult::DatabaseError` - If the database operation fails
-    pub fn add_entry(
+    /// Inserts a new encrypted entry for a user.
+    async fn add_entry(
         &self,
         user_id: &str,
         entry_name: &str,
-        encrypted_data: String,
-    ) -> Result<(), PasmResult> {
-        let tree = self.user_tree(user_id)?;
-        let key = format!("entry:{}", entry_name);
-        match tree.compare_and_swap(&key, None as Option<&[u8]>, Some(encrypted_data.as_bytes())) {
-            Ok(Ok(_)) => Ok(()),
-            Ok(Err(_)) => Err(PasmResult::ServerStatus(
-                StatusCode::CONFLICT,
-                "entry already exists".to_string(),
-            )),
-            Err(e) => Err(PasmResult::DatabaseError { err: e }),
-        }
+        encrypted_data: &str,
+    ) -> Result<(), PasmResult>;
+
+    /// Retrieves an entry's encrypted value by name.
+    async fn get_entry(&self, user_id: &str, entry_name: &str) -> Result<String, PasmResult>;
+
+    /// Returns whether a named entry exists for a user.
+    async fn has_entry(&self, user_id: &str, entry_name: &str) -> Result<bool, PasmResult>;
+
+    /// Removes a single entry.
+    async fn remove_entry(&self, user_id: &str, entry_name: &str) -> Result<(), PasmResult>;
+
+    /// Returns all entries belonging to a user.
+    async fn list_entries(&self, user_id: &str) -> Result<Vec<RequestData>, PasmResult>;
+
+    /// Creates or overwrites an entry.
+    async fn amend_entry(
+        &self,
+        user_id: &str,
+        entry_name: &str,
+        encrypted_data: &str,
+    ) -> Result<(), PasmResult>;
+}
+
+/// PostgreSQL-backed database.
+#[derive(Clone)]
+pub struct PgDb {
+    pool: PgPool,
+}
+
+impl PgDb {
+    pub fn new(pool: PgPool) -> Self {
+        Self { pool }
     }
 
-    /// Removes a password entry for a user.
-    ///
-    /// # Arguments
-    /// * `user_id` - The user whose entry to remove
-    /// * `entry_name` - The name of the entry to delete
-    ///
-    /// # Returns
-    /// * `Ok(())` - On successful deletion
-    ///
-    /// # Errors
-    /// * `PasmResult::DatabaseError` - If the database operation fails
-    pub fn remove_entry(&self, user_id: &str, entry_name: &str) -> Result<(), PasmResult> {
-        let tree = self.user_tree(user_id)?;
-        let key = format!("entry:{}", entry_name);
-        tree.remove(key.as_bytes())
-            .map_err(|e| PasmResult::DatabaseError { err: e })?;
+    pub async fn connect(database_url: &str) -> Result<Self, PasmResult> {
+        let pool = PgPoolOptions::new()
+            .max_connections(5)
+            .connect(database_url)
+            .await
+            .map_err(|e| PasmResult::DatabaseError { err: e.to_string() })?;
+        Ok(Self { pool })
+    }
+
+    pub fn pool(&self) -> &PgPool {
+        &self.pool
+    }
+}
+
+#[async_trait::async_trait]
+impl Db for PgDb {
+    async fn ping(&self) -> Result<(), PasmResult> {
+        sqlx::query("SELECT 1")
+            .execute(&self.pool)
+            .await
+            .map_err(|e| PasmResult::DatabaseError { err: e.to_string() })?;
         Ok(())
     }
 
-    /// Retrieves an encrypted password entry for a user.
-    ///
-    /// # Arguments
-    /// * `user_id` - The user whose entry to retrieve
-    /// * `entry_name` - The name of the entry to fetch
-    ///
-    /// # Returns
-    /// * `Ok(String)` - The encrypted entry data
-    ///
-    /// # Errors
-    /// * `PasmResult::ServerStatus(NOT_FOUND)` - If the entry does not exist
-    /// * `PasmResult::DatabaseError` - If the database operation fails
-    /// * `PasmResult::UTF8ConversionError` - If the stored data is invalid UTF-8
-    pub fn get_entry(&self, user_id: &str, entry_name: &str) -> Result<String, PasmResult> {
-        let tree = self.user_tree(user_id)?;
-        let key = format!("entry:{}", entry_name);
-        let result = tree
-            .get(key.as_bytes())
-            .map_err(|e| PasmResult::DatabaseError { err: e })?;
+    async fn get_user_id_by_authkey(&self, authkey: &str) -> Result<String, PasmResult> {
+        let user_id: Option<String> =
+            sqlx::query_scalar("SELECT id::text FROM users WHERE auth_key_hash = $1")
+                .bind(authkey)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| PasmResult::DatabaseError { err: e.to_string() })?;
+
+        match user_id {
+            Some(id) => Ok(id),
+            None => Err(PasmResult::ServerStatus(
+                StatusCode::NOT_FOUND,
+                "user_id not found".to_string(),
+            )),
+        }
+    }
+
+    async fn auth_key_exists(&self, authkey: &str) -> Result<bool, PasmResult> {
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE auth_key_hash = $1)")
+            .bind(authkey)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| PasmResult::DatabaseError { err: e.to_string() })
+    }
+
+    async fn register_auth(&self, auth_key: &str) -> PasmResult {
+        let result = sqlx::query(
+            "INSERT INTO users (auth_key_hash) VALUES ($1) ON CONFLICT (auth_key_hash) DO NOTHING",
+        )
+        .bind(auth_key)
+        .execute(&self.pool)
+        .await;
+
         match result {
-            Some(res) => {
-                let entry = String::from_utf8(res.to_vec())
-                    .map_err(|e| PasmResult::UTF8ConversionError { err: e })?;
-                Ok(entry)
+            Ok(res) if res.rows_affected() > 0 => PasmResult::ServerStatus(
+                StatusCode::OK,
+                "registered new authentication token!".to_string(),
+            ),
+            Ok(_) => PasmResult::ServerStatus(
+                StatusCode::CONFLICT,
+                "auth key already exists".to_string(),
+            ),
+            Err(e) => PasmResult::DatabaseError { err: e.to_string() },
+        }
+    }
+
+    async fn update_auth(&self, auth_key: &str, new_auth: &str) -> PasmResult {
+        let user_id = match self.get_user_id_by_authkey(auth_key).await {
+            Ok(id) => id,
+            Err(e) => return e,
+        };
+
+        let new_taken = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM users WHERE auth_key_hash = $1)",
+        )
+        .bind(new_auth)
+        .fetch_one(&self.pool)
+        .await;
+
+        let new_taken = match new_taken {
+            Ok(v) => v,
+            Err(e) => return PasmResult::DatabaseError { err: e.to_string() },
+        };
+
+        if new_taken {
+            return PasmResult::ServerStatus(
+                StatusCode::CONFLICT,
+                "new auth key already exists".to_string(),
+            );
+        }
+
+        let result = sqlx::query("UPDATE users SET auth_key_hash = $2 WHERE id = $1::uuid")
+            .bind(&user_id)
+            .bind(new_auth)
+            .execute(&self.pool)
+            .await;
+
+        match result {
+            Ok(_) => PasmResult::ServerStatus(StatusCode::OK, String::new()),
+            Err(e) => PasmResult::DatabaseError { err: e.to_string() },
+        }
+    }
+
+    async fn remove_user(&self, auth_key: &str) -> PasmResult {
+        let result = sqlx::query("DELETE FROM users WHERE auth_key_hash = $1")
+            .bind(auth_key)
+            .execute(&self.pool)
+            .await;
+
+        match result {
+            Ok(res) if res.rows_affected() > 0 => {
+                PasmResult::ServerStatus(StatusCode::OK, String::new())
             }
+            Ok(_) => {
+                PasmResult::ServerStatus(StatusCode::NOT_FOUND, "auth key not found".to_string())
+            }
+            Err(e) => PasmResult::DatabaseError { err: e.to_string() },
+        }
+    }
+
+    async fn list_users(&self) -> Result<Vec<String>, PasmResult> {
+        let keys: Vec<String> =
+            sqlx::query_scalar("SELECT auth_key_hash FROM users ORDER BY created_at")
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| PasmResult::DatabaseError { err: e.to_string() })?;
+
+        Ok(keys)
+    }
+
+    async fn add_entry(
+        &self,
+        user_id: &str,
+        entry_name: &str,
+        encrypted_data: &str,
+    ) -> Result<(), PasmResult> {
+        let result = sqlx::query(
+            "INSERT INTO entries (user_id, entry_name, encrypted_value) \
+             VALUES ($1::uuid, $2, $3) \
+             ON CONFLICT (user_id, entry_name) DO NOTHING",
+        )
+        .bind(user_id)
+        .bind(entry_name)
+        .bind(encrypted_data)
+        .execute(&self.pool)
+        .await;
+
+        match result {
+            Ok(res) if res.rows_affected() > 0 => Ok(()),
+            Ok(_) => Err(PasmResult::ServerStatus(
+                StatusCode::CONFLICT,
+                "entry already exists".to_string(),
+            )),
+            Err(e) => Err(PasmResult::DatabaseError { err: e.to_string() }),
+        }
+    }
+
+    async fn get_entry(&self, user_id: &str, entry_name: &str) -> Result<String, PasmResult> {
+        let value: Option<String> = sqlx::query_scalar(
+            "SELECT encrypted_value FROM entries WHERE user_id = $1::uuid AND entry_name = $2",
+        )
+        .bind(user_id)
+        .bind(entry_name)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| PasmResult::DatabaseError { err: e.to_string() })?;
+
+        match value {
+            Some(v) => Ok(v),
             None => Err(PasmResult::ServerStatus(
                 StatusCode::NOT_FOUND,
                 entry_name.to_string(),
@@ -200,244 +251,92 @@ impl PasmDb {
         }
     }
 
-    /// Checks whether a specific entry exists for a user.
-    ///
-    /// # Arguments
-    /// * `user_id` - The user to check
-    /// * `entry_name` - The name of the entry to look for
-    ///
-    /// # Returns
-    /// * `Ok(bool)` - `true` if the entry exists, `false` otherwise
-    ///
-    /// # Errors
-    /// * `PasmResult::DatabaseError` - If the database operation fails
-    pub fn has_entry(&self, user_id: &str, entry_name: &str) -> Result<bool, PasmResult> {
-        let tree = self.user_tree(user_id)?;
-        let key = format!("entry:{}", entry_name);
-        tree.contains_key(key.as_bytes())
-            .map_err(|e| PasmResult::DatabaseError { err: e })
+    async fn has_entry(&self, user_id: &str, entry_name: &str) -> Result<bool, PasmResult> {
+        sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM entries WHERE user_id = $1::uuid AND entry_name = $2)",
+        )
+        .bind(user_id)
+        .bind(entry_name)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| PasmResult::DatabaseError { err: e.to_string() })
     }
 
-    /// Lists all password entries for a user.
-    ///
-    /// Returns a vector of all entries with their names and encrypted data.
-    ///
-    /// # Arguments
-    /// * `user_id` - The user whose entries to list
-    ///
-    /// # Returns
-    /// * `Ok(Vec<RequestData>)` - All entries belonging to the user
-    ///
-    /// # Errors
-    /// * `PasmResult::DatabaseError` - If the database iteration fails
-    /// * `PasmResult::UTF8ConversionError` - If entry keys or values are invalid UTF-8
-    pub fn list_entries(&self, user_id: &str) -> Result<Vec<RequestData>, PasmResult> {
-        let tree = self.user_tree(user_id)?;
-        let mut entries: Vec<RequestData> = Vec::new();
+    async fn remove_entry(&self, user_id: &str, entry_name: &str) -> Result<(), PasmResult> {
+        sqlx::query("DELETE FROM entries WHERE user_id = $1::uuid AND entry_name = $2")
+            .bind(user_id)
+            .bind(entry_name)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| PasmResult::DatabaseError { err: e.to_string() })?;
+        Ok(())
+    }
 
-        for item in tree.iter() {
-            let (key, value) = item.map_err(|e| PasmResult::DatabaseError { err: e })?;
-            let entry_name = String::from_utf8(key.to_vec())
-                .map_err(|e| PasmResult::UTF8ConversionError { err: e })?;
+    async fn list_entries(&self, user_id: &str) -> Result<Vec<RequestData>, PasmResult> {
+        let rows = sqlx::query(
+            "SELECT entry_name, encrypted_value FROM entries \
+             WHERE user_id = $1::uuid ORDER BY entry_name",
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| PasmResult::DatabaseError { err: e.to_string() })?;
 
-            let entry = String::from_utf8(value.to_vec())
-                .map_err(|err| PasmResult::UTF8ConversionError { err })?;
-
-            let entry = RequestData {
-                key: entry_name,
-                value: entry,
-            };
-            entries.push(entry);
-        }
+        let entries: Vec<RequestData> = rows
+            .iter()
+            .map(|row| RequestData {
+                key: row.get(0),
+                value: row.get(1),
+            })
+            .collect();
 
         Ok(entries)
     }
 
-    /// Updates or creates an entry for a user.
-    ///
-    /// Unlike `add_entry`, this method will overwrite existing entries.
-    ///
-    /// # Arguments
-    /// * `user_id` - The user to update the entry for
-    /// * `entry_name` - The name of the entry to amend
-    /// * `encrypted_data` - The new AES-256 encrypted entry data
-    ///
-    /// # Returns
-    /// * `Ok(())` - If an existing entry was updated
-    /// * `Err(CREATED)` - If a new entry was created (returns status code 201)
-    ///
-    /// # Errors
-    /// * `PasmResult::DatabaseError` - If the database operation fails
-    pub fn amend_entry(
+    async fn amend_entry(
         &self,
         user_id: &str,
         entry_name: &str,
-        encrypted_data: String,
+        encrypted_data: &str,
     ) -> Result<(), PasmResult> {
-        let tree = self.user_tree(user_id)?;
-        match tree.insert(entry_name.as_bytes(), encrypted_data.as_bytes()) {
-            Ok(Some(_)) => Err(PasmResult::ServerStatus(
+        let exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM entries WHERE user_id = $1::uuid AND entry_name = $2)",
+        )
+        .bind(user_id)
+        .bind(entry_name)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| PasmResult::DatabaseError { err: e.to_string() })?;
+
+        if exists {
+            sqlx::query(
+                "UPDATE entries SET encrypted_value = $3, updated_at = now() \
+                 WHERE user_id = $1::uuid AND entry_name = $2",
+            )
+            .bind(user_id)
+            .bind(entry_name)
+            .bind(encrypted_data)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| PasmResult::DatabaseError { err: e.to_string() })?;
+
+            Ok(())
+        } else {
+            sqlx::query(
+                "INSERT INTO entries (user_id, entry_name, encrypted_value) \
+                 VALUES ($1::uuid, $2, $3)",
+            )
+            .bind(user_id)
+            .bind(entry_name)
+            .bind(encrypted_data)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| PasmResult::DatabaseError { err: e.to_string() })?;
+
+            Err(PasmResult::ServerStatus(
                 StatusCode::CREATED,
                 "new entry created !".to_string(),
-            )),
-            Ok(None) => Ok(()),
-            Err(err) => Err(PasmResult::DatabaseError { err }),
+            ))
         }
-    }
-
-    /// Registers a new user with a generated UUID.
-    ///
-    /// Creates a new authentication key -> user ID mapping in the users tree.
-    ///
-    /// # Arguments
-    /// * `auth_key` - The authentication key (Bearer token) to associate
-    ///
-    /// # Returns
-    /// * `Ok(())` - On successful registration
-    ///
-    /// # Errors
-    /// * `PasmResult::ServerStatus(CONFLICT)` - If the auth key already exists
-    /// * `PasmResult::DatabaseError` - If the database operation fails
-    pub fn register_auth(&self, auth_key: &str) -> PasmResult {
-        let users = match self.users() {
-            Ok(tree) => tree,
-            Err(err) => return err,
-        };
-
-        let user_id = Uuid::new_v4().to_string();
-
-        match users.compare_and_swap(
-            auth_key.as_bytes(),
-            None as Option<&[u8]>,
-            Some(user_id.as_bytes()),
-        ) {
-            Ok(Ok(_)) => PasmResult::ServerStatus(StatusCode::OK, "registered new authentication token!".to_string()),
-            Ok(Err(_)) => PasmResult::ServerStatus(
-                StatusCode::CONFLICT,
-                "auth key already exists".to_string(),
-            ),
-            Err(err) => PasmResult::DatabaseError { err },
-        }
-    }
-
-    /// Updates an existing authentication key to a new one.
-    ///
-    /// Atomically replaces the old auth key with the new one while preserving the user ID.
-    ///
-    /// # Arguments
-    /// * `auth_key` - The current authentication key
-    /// * `new_auth` - The new authentication key to set
-    ///
-    /// # Returns
-    /// * `Ok(())` - On successful update
-    ///
-    /// # Errors
-    /// * `PasmResult::ServerStatus(NOT_FOUND)` - If the old auth key does not exist
-    /// * `PasmResult::ServerStatus(CONFLICT)` - If the new auth key already exists
-    /// * `PasmResult::DatabaseError` - If the database operation fails
-    pub fn update_auth(&self, auth_key: &str, new_auth: &str) -> PasmResult {
-        let users = match self.users() {
-            Ok(tree) => tree,
-            Err(err) => return err,
-        };
-
-        let user_id = match self.get_user_id_by_authkey(auth_key) {
-            Ok(id) => id,
-            Err(err) => return err,
-        };
-
-        match users.compare_and_swap(
-            new_auth.as_bytes(),
-            None as Option<&[u8]>,
-            Some(user_id.as_bytes()),
-        ) {
-            Ok(Ok(_)) => {}
-            Ok(Err(_)) => {
-                return PasmResult::ServerStatus(
-                    StatusCode::CONFLICT,
-                    "new auth key already exists".to_string(),
-                )
-            }
-            Err(err) => return PasmResult::DatabaseError { err },
-        }
-
-        match users.compare_and_swap(
-            auth_key.as_bytes(),
-            Some(user_id.as_bytes()),
-            None as Option<&[u8]>,
-        ) {
-            Ok(Ok(_)) => PasmResult::ServerStatus(StatusCode::OK, "".to_string()),
-            Ok(Err(_)) => PasmResult::ServerStatus(
-                StatusCode::NOT_FOUND,
-                "old auth key does not exist".to_string(),
-            ),
-            Err(err) => PasmResult::DatabaseError { err },
-        }
-    }
-
-    /// Removes a user and all their data from the database.
-    ///
-    /// Deletes the auth key mapping and the user's entire entry tree.
-    ///
-    /// # Arguments
-    /// * `auth_key` - The authentication key of the user to remove
-    ///
-    /// # Returns
-    /// * `Ok(())` - On successful deletion
-    ///
-    /// # Errors
-    /// * `PasmResult::ServerStatus(NOT_FOUND)` - If the auth key does not exist
-    /// * `PasmResult::DatabaseError` - If the database operation fails
-    pub fn remove_user(&self, auth_key: &str) -> PasmResult {
-        let user_id = match self.get_user_id_by_authkey(auth_key) {
-            Ok(id) => id,
-            Err(err) => return err,
-        };
-
-        let users = match self.users() {
-            Ok(tree) => tree,
-            Err(err) => return err,
-        };
-
-        match users.remove(auth_key.as_bytes()) {
-            Ok(Some(_)) => {}
-            Ok(None) => {
-                return PasmResult::ServerStatus(
-                    StatusCode::NOT_FOUND,
-                    "auth key not found".to_string(),
-                )
-            }
-            Err(err) => return PasmResult::DatabaseError { err },
-        }
-
-        match self.db.drop_tree(&user_id) {
-            Ok(_) => PasmResult::ServerStatus(StatusCode::OK, "".to_string()),
-            Err(err) => PasmResult::DatabaseError { err },
-        }
-    }
-
-    /// Lists all users in the database.
-    ///
-    /// Returns a vector of all auth keys and their associated user IDs.
-    ///
-    /// # Returns
-    /// * `Ok(Vec<RequestData>)` - All users with auth_key as key and user_id as value
-    ///
-    /// # Errors
-    /// * `PasmResult::DatabaseError` - If the database iteration fails
-    /// * `PasmResult::UTF8ConversionError` - If keys or values are invalid UTF-8
-    pub fn list_users(&self) -> Result<Vec<String>, PasmResult> {
-        let users = self.users()?;
-        let mut result: Vec<String> = Vec::new();
-
-        for item in users.iter() {
-            let (key, _) = item.map_err(|e| PasmResult::DatabaseError { err: e })?;
-            let auth_key = String::from_utf8(key.to_vec())
-                .map_err(|e| PasmResult::UTF8ConversionError { err: e })?;
-
-            result.push( auth_key );
-        }
-
-        Ok(result)
     }
 }

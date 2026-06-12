@@ -1,7 +1,7 @@
 # AGENTS.md
 
 ## Project Overview
-**pasm** is a minimal password manager backend written in Rust. It uses Axum for routing, Sled as an embedded database, AES-256 encryption for stored entries, and Bearer token authentication.
+**pasm** is a password manager with a Rust CLI client and REST API backend. It uses Axum for routing, PostgreSQL for storage, AES-256 encryption for entries, and Bearer token authentication.
 
 ---
 
@@ -87,7 +87,6 @@ cargo fmt && cargo clippy -- -D warnings && cargo test
 ### Types
 - Use `Arc<T>` for shared ownership of non-Copy types (see `state.rs:10-11`)
 - Prefer explicit error types over generic `Box<dyn Error>`
-- Use `sled::IVec` for database key/value storage
 - Use `serde::{Serialize, Deserialize}` with derive macros for serialization
 
 ### Error Handling
@@ -114,29 +113,33 @@ cargo fmt && cargo clippy -- -D warnings && cargo test
 - Extract JSON with `Json<T>`
 - Return `(StatusCode, body).into_response()` for explicit status codes
 
-### Database Patterns (Sled)
-- Open database: `sled::open(path).expect("message")`
-- Check existence: `db.contains_key(&name)`
-- Insert: `db.insert(name, value.as_bytes())`
-- Get: `db.get(key)` returns `Result<Option<IVec>>`
-- Remove: `db.remove(key)` returns `Result<Option<IVec>>`
-- Scan prefix: `db.scan_prefix("prefix:")` for iteration
-- Key format convention: `{type}:{identifier}` (e.g., `entry:github`)
+### Database Patterns (PostgreSQL via sqlx)
+- All DB operations go through the `Db` trait in `types/db.rs`
+- `PgDb` is the PostgreSQL implementation, wrapped in `PasmState`
+- Every DB call is async — always use `.await`
+- Connection pool configured via config file or `PASM_DATABASE_URL` env var
+- Schema migrations live in `server/sql/migrations/` and run on startup
+- Queries use `sqlx::query` / `sqlx::query_scalar` with `$N` positional binds
 
 ### Module Organization
 ```
 src/
-├── bin/          # Binary entry points
+├── bin/          # Binary entry points (pasm_client, pasm_server)
 ├── lib.rs        # Library root (exports modules)
 ├── server/       # Server/routing logic
-│   ├── api/      # Route handlers (create, find, list, delete, amend)
-│   └── auth.rs   # Authentication middleware
+│   ├── api/      # Route handlers (create, find, list, delete, amend, health)
+│   │   └── auth/ # Auth handlers (register, update, remove)
+│   ├── auth.rs   # Auth middleware
+│   └── sql/      # Schema migrations + SQL reference
 ├── types/        # Data types and errors
-│   ├── db.rs     # Database configuration/trees (TODO)
-│   ├── detail.rs # Entry data structure
-│   ├── error.rs  # Error enum
-│   └── state.rs  # Application state
+│   ├── db.rs     # Db trait + PgDb implementation
+│   ├── detail.rs # Entry detail structure
+│   ├── entry.rs  # RequestData (key/value)
+│   ├── error.rs  # PasmResult error enum
+│   ├── health.rs # HealthResponse struct
+│   └── state.rs  # PasmState (app state)
 └── utils/        # Helper functions
+    ├── config.rs # Env / config-file / CLI flag resolution
     ├── decrypt.rs
     ├── deserialize.rs
     ├── encrypt.rs
@@ -151,10 +154,14 @@ src/
 ---
 
 ## Environment Variables
-Required for running:
-- `API_KEY`: Bearer token for API authentication
-- `ENCRYPTION_KEY`: AES-256 key for encrypting entries
-- `HOME`: Used to locate config directory for database
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PASM_DATABASE_URL` | — | PostgreSQL connection string (required) |
+| `PASM_SERVER_ADDR` | `0.0.0.0:3000` | Server bind address |
+| `PASM_SERVER_URL` | `http://localhost:3000` | Client-facing server URL |
+| `PASM_CONFIG` | `~/.config/pasm/config.toml` | Config file path |
+| `HOME` | System home | Config & session directory base |
 
 ---
 
@@ -170,6 +177,8 @@ Required for running:
 2. Handle in error conversion code as needed
 
 ### Working with Database
-1. Access via `state.db` in route handlers
-2. Serialize data before insertion (use `utils/serialize.rs`)
-3. Deserialize after retrieval (use `utils/deserialize.rs`)
+1. Access via `state.db` in route handlers (import `Db` trait for method visibility)
+2. All DB methods are async — call with `.await`
+3. Serialize data before insertion (use `utils/serialize.rs`)
+4. Deserialize after retrieval (use `utils/deserialize.rs`)
+5. Pool configured via config file (`max_connections`) or `PASM_DATABASE_URL` env var

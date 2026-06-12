@@ -4,7 +4,7 @@ use axum::{
     Extension, Json,
 };
 
-use crate::types::state::PasmState;
+use crate::types::{db::Db, state::PasmState};
 
 /// This function finds specified entry in the database and returns the Json content
 pub async fn call(
@@ -14,12 +14,12 @@ pub async fn call(
 ) -> impl IntoResponse {
     let db = &state.db;
 
-    let user_id = match db.get_user_id_by_authkey(&auth_key) {
+    let user_id = match db.get_user_id_by_authkey(&auth_key).await {
         Ok(id) => id,
         Err(err) => return err.into_response(),
     };
 
-    let result = match db.get_entry(&user_id, &name) {
+    let result = match db.get_entry(&user_id, &name).await {
         Ok(entries) => entries,
         Err(err) => return err.into_response(),
     };

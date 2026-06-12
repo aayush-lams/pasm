@@ -1,6 +1,6 @@
 use axum::{extract::State, response::IntoResponse, Extension};
 
-use crate::types::state::PasmState;
+use crate::types::{db::Db, state::PasmState};
 
 /// Removes the current user and all their data from the database.
 ///
@@ -13,5 +13,5 @@ pub async fn call(
     let db = &state.db;
 
     println!("removed user!");
-    db.remove_user(&uid).into_response()
+    db.remove_user(&uid).await.into_response()
 }

@@ -36,7 +36,7 @@ pub async fn run() {
 
     let filepath = Path::new(&home_dir)
         .join(".config")
-        .join("path")
+        .join("pasm")
         .join("database");
 
     let db: Db = sled::open(filepath).expect(&"failed to open database!");

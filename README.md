@@ -20,7 +20,7 @@ A minimal password manager with a Rust CLI client and REST API backend.
 ## Quick start
 
 ```bash
-# Build everything
+# Build from scratch
 cargo build
 
 # Start the server
@@ -61,6 +61,9 @@ Account management (requires login):
   update-auth <key>  Replace auth key (key rotation)
   remove-auth        Remove user and all data from server
   list-users         List all registered users
+
+Other:
+  help, -h, --help   Show this help message
 ```
 
 ### Examples
@@ -90,13 +93,13 @@ docker build -t pasm .
 docker run --rm -p 3000:3000 pasm
 ```
 
-The server does **not** require an `API_KEY` environment variable. Auth keys are registered per-user via `POST /auth` at runtime.
+The server does **not** require an `API_KEY` environment variable when using cli. Auth keys are registered per-user via `POST /auth` at runtime.
 
 Configurable via environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `HOME` | System home | Used to locate the Sled database at `$HOME/.config/path/database` |
+| `HOME` | System home | Used to locate the Sled database at `$HOME/.config/pasm/database` |
 
 ---
 
@@ -119,8 +122,8 @@ All endpoints except `POST /auth` require `Authorization: Bearer <api_key>`.
 ### Example
 
 ```bash
-# Register a new auth key
-curl -X POST -H "Authorization: Bearer $API_KEY" http://localhost:3000/auth
+# Register a new auth key (the Bearer token IS the key being registered)
+curl -X POST -H "Authorization: Bearer <your_derived_key>" http://localhost:3000/auth
 
 # List all entries
 curl -H "Authorization: Bearer $API_KEY" http://localhost:3000/entries
@@ -141,31 +144,12 @@ curl -X DELETE -H "Authorization: Bearer $API_KEY" \
 
 ---
 
-## Module structure
-
-```
-src/
-├── bin/
-│   ├── pasm_client.rs       CLI entry point
-│   └── pasm_server.rs       Server entry point
-├── client/
-│   ├── cli/commands.rs      Command enum and argument parsing
-│   ├── curl/requests.rs     Curl execution and request builders
-│   ├── response/display.rs  Response formatting and pretty-print
-│   ├── auth/master.rs       Login/logout, session, key derivation
-│   ├── entry/ops.rs         Entry CRUD with encrypt/decrypt orchestration
-│   └── input/prompts.rs     Interactive user input helpers
-├── server/                  Axum routes, auth middleware
-├── types/                   Data types, state, errors, database wrapper
-└── utils/                   Encryption, decryption, serialize, deserialize
-```
-
----
-
 ## Security notes
 
-- **Master password** is never stored. A verification hash (MagicCrypt-encrypted known plaintext) is kept at `~/.config/pasm/master.hash`.
-- **Session file** (`~/.config/pasm/session`, permissions 0600) stores the derived `api_key` and `encr_key` in plaintext.
 - **Key derivation**: `auth_key = SHA-256("pasm-auth" + password)`, then `api_key = SHA-256(auth_key)`. The intermediate `auth_key` is never sent over the wire.
 - **Entry encryption**: Data is AES-256 encrypted client-side before upload. The server only ever sees ciphertext.
-- No TLS, no key stretching (Argon2id), no OS keyring integration — see [`pasm-walkthrough.md`](pasm-walkthrough.md) for the full audit and upgrade roadmap.
+
+## Not implemented/ Future enhancements
+- TLS,
+- key stretching (Argon2id)
+- OS keyring integration.

@@ -1,6 +1,6 @@
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Extension, Json};
 
-use crate::types::{entry::RequestData, state::PasmState};
+use crate::types::{db::Db, entry::RequestData, state::PasmState};
 
 /// This function creates new entry in the database
 /// if key doesnot exist returns Error:409, `CONFLICT`
@@ -11,12 +11,12 @@ pub async fn call(
 ) -> impl IntoResponse {
     let db = &state.db;
 
-    let user_id = match db.get_user_id_by_authkey(&auth_key) {
+    let user_id = match db.get_user_id_by_authkey(&auth_key).await {
         Ok(id) => id,
         Err(err) => return err.into_response(),
     };
 
-    if let Err(err) = db.add_entry(&user_id, &payload.key, payload.value) {
+    if let Err(err) = db.add_entry(&user_id, &payload.key, &payload.value).await {
         return err.into_response();
     }
 

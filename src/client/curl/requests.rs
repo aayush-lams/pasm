@@ -1,7 +1,6 @@
 use std::process::Command;
 
-/// Base URL of the pasm server. Change this to point at a remote instance.
-const SERVER_URL: &str = "http://localhost:3000";
+use crate::utils::config::server_url;
 
 /// Executes a `curl` command with the given arguments and returns the output.
 ///
@@ -44,9 +43,54 @@ fn run_curl(args: &[&str]) -> String {
         Err(_) => return stdout,
     };
     if status >= 400 {
-        return format!("Error: HTTP {status}");
+        let msg = if body.trim().is_empty() {
+            format!("Error: HTTP {status}")
+        } else {
+            format!("Error: HTTP {status}: {}", body.trim())
+        };
+        return msg;
     }
     body
+}
+
+/// Checks whether the server is reachable by calling `GET /health`.
+///
+/// Uses a 3-second timeout and returns `Ok(())` only on HTTP 200.
+/// Returns an error string describing the failure otherwise.
+pub fn check_health() -> Result<(), String> {
+    let output = Command::new("curl")
+        .args([
+            "-s",
+            "-o",
+            "/dev/null",
+            "-w",
+            "%{http_code}",
+            "--max-time",
+            "3",
+            &format!("{}/health", server_url()),
+        ])
+        .output()
+        .map_err(|e| format!("server is not reachable: failed to run curl: {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!(
+            "server at {} is not reachable: curl exited with {}: {}",
+            server_url(),
+            output.status,
+            stderr.trim()
+        ));
+    }
+
+    let status = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if status == "200" {
+        Ok(())
+    } else {
+        Err(format!(
+            "server at {} returned HTTP {status} — expected 200",
+            server_url()
+        ))
+    }
 }
 
 /// Creates a new entry on the server.
@@ -67,7 +111,7 @@ pub fn create_entry(api_key: &str, key: &str, value: &str) -> String {
         "-s",
         "-X",
         "POST",
-        &format!("{}/entry", SERVER_URL),
+        &format!("{}/entry", server_url()),
         "-H",
         &format!("Authorization: Bearer {api_key}"),
         "-H",
@@ -93,7 +137,7 @@ pub fn find_entry(api_key: &str, name: &str) -> String {
         "-s",
         "-X",
         "GET",
-        &format!("{}/entry/{name}", SERVER_URL),
+        &format!("{}/entry/{name}", server_url()),
         "-H",
         &format!("Authorization: Bearer {api_key}"),
     ])
@@ -114,7 +158,7 @@ pub fn list_entries(api_key: &str) -> String {
         "-s",
         "-X",
         "GET",
-        &format!("{}/entries", SERVER_URL),
+        &format!("{}/entries", server_url()),
         "-H",
         &format!("Authorization: Bearer {api_key}"),
     ])
@@ -135,7 +179,7 @@ pub fn delete_entry(api_key: &str, name: &str) -> String {
         "-s",
         "-X",
         "DELETE",
-        &format!("{}/entry/{name}", SERVER_URL),
+        &format!("{}/entry/{name}", server_url()),
         "-H",
         &format!("Authorization: Bearer {api_key}"),
     ])
@@ -159,7 +203,7 @@ pub fn amend_entry(api_key: &str, key: &str, value: &str) -> String {
         "-s",
         "-X",
         "POST",
-        &format!("{}/entry/amend", SERVER_URL),
+        &format!("{}/entry/amend", server_url()),
         "-H",
         &format!("Authorization: Bearer {api_key}"),
         "-H",
@@ -185,7 +229,7 @@ pub fn register_auth(api_key: &str) -> String {
         "-s",
         "-X",
         "POST",
-        &format!("{}/auth", SERVER_URL),
+        &format!("{}/auth", server_url()),
         "-H",
         &format!("Authorization: Bearer {api_key}"),
     ])
@@ -208,7 +252,7 @@ pub fn update_auth(api_key: &str, new_key: &str) -> String {
         "-s",
         "-X",
         "POST",
-        &format!("{}/auth/update", SERVER_URL),
+        &format!("{}/auth/update", server_url()),
         "-H",
         &format!("Authorization: Bearer {api_key}"),
         "-H",
@@ -233,7 +277,28 @@ pub fn remove_auth(api_key: &str) -> String {
         "-s",
         "-X",
         "DELETE",
-        &format!("{}/auth/remove", SERVER_URL),
+        &format!("{}/auth/remove", server_url()),
+        "-H",
+        &format!("Authorization: Bearer {api_key}"),
+    ])
+}
+
+/// Creates a backup of all encrypted entries for the authenticated user.
+///
+/// Sends `GET /backup`. The server dumps all entries to a JSON file and
+/// returns the path, entry count, and file size.
+///
+/// # Arguments
+/// * `api_key` - Bearer token for server API authentication
+///
+/// # Returns
+/// The server response body (backup path and metadata on success).
+pub fn backup(api_key: &str) -> String {
+    run_curl(&[
+        "-s",
+        "-X",
+        "GET",
+        &format!("{}/backup", server_url()),
         "-H",
         &format!("Authorization: Bearer {api_key}"),
     ])
@@ -254,7 +319,7 @@ pub fn list_users(api_key: &str) -> String {
         "-s",
         "-X",
         "GET",
-        &format!("{}/auth/list", SERVER_URL),
+        &format!("{}/auth/list", server_url()),
         "-H",
         &format!("Authorization: Bearer {api_key}"),
     ]);

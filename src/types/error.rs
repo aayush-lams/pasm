@@ -1,13 +1,11 @@
 use std::fmt;
-use std::string::FromUtf8Error;
 
 use axum::{http::StatusCode, response::IntoResponse};
 
 /// Unified error type used throughout pasm for both client and server.
 ///
 /// # Variants
-/// * `DatabaseError` — Sled database operation failed
-/// * `UTF8ConversionError` — Failed to convert bytes to a UTF-8 string
+/// * `DatabaseError` — Database operation failed
 /// * `EncryptionError` — AES-256 encryption failed
 /// * `DecryptionError` — AES-256 decryption failed (wrong key or corrupted data)
 /// * `SerializationError` — Failed to serialize a value to JSON
@@ -16,8 +14,7 @@ use axum::{http::StatusCode, response::IntoResponse};
 ///   represents a controlled error response (server-side)
 #[derive(Debug)]
 pub enum PasmResult {
-    DatabaseError { err: sled::Error },
-    UTF8ConversionError { err: FromUtf8Error },
+    DatabaseError { err: String },
     EncryptionError { err: String },
     DecryptionError { err: String },
     SerializationError { err: String },
@@ -29,7 +26,6 @@ impl fmt::Display for PasmResult {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             PasmResult::DatabaseError { err } => write!(f, "database error: {err}"),
-            PasmResult::UTF8ConversionError { err } => write!(f, "utf8 conversion error: {err}"),
             PasmResult::EncryptionError { err } => write!(f, "encryption error: {err}"),
             PasmResult::DecryptionError { err } => write!(f, "decryption error: {err}"),
             PasmResult::SerializationError { err } => write!(f, "serialization error: {err}"),
@@ -45,11 +41,6 @@ impl IntoResponse for PasmResult {
             PasmResult::DatabaseError { err } => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("database error: {err}"),
-            )
-                .into_response(),
-            PasmResult::UTF8ConversionError { err } => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("utf8 conversion error: {err}"),
             )
                 .into_response(),
             PasmResult::EncryptionError { err } => (

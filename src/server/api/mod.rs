@@ -1,7 +1,9 @@
 pub mod amend;
 pub mod auth;
+pub mod backup;
 pub mod create;
 pub mod delete;
 pub mod find;
+pub mod health;
 pub mod list;
 pub mod users;

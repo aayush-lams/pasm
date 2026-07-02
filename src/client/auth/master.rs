@@ -9,6 +9,7 @@ use sha2::{Digest, Sha256};
 
 use crate::client::curl::requests;
 use crate::client::input::prompts::prompt_hidden;
+use crate::utils::config;
 
 const CONFIG_DIR: &str = ".config/pasm";
 const HASH_FILE: &str = "master.hash";
@@ -273,6 +274,17 @@ pub fn login() -> String {
 
         if let Err(e) = store_password_hash(&password) {
             return format!("failed to store password: {e}");
+        }
+
+        // Write default config file on first setup
+        let cfg = config::TomlConfig {
+            server_url: Some(config::server_url().to_string()),
+            server_addr: None,
+            database_url: None,
+            max_connections: None,
+        };
+        if let Err(e) = config::write_toml(&cfg) {
+            eprintln!("Warning: failed to create config file: {e}");
         }
 
         let api_key = derive_api_key(&password);

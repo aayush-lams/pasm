@@ -1,26 +1,39 @@
 use pasm::client::auth::master;
-use pasm::client::{cli::commands::CliCommand, response::display};
+use pasm::client::entry::ops;
+use pasm::client::{cli::commands::CliCommand, curl::requests, response::display};
+use pasm::utils::config;
 
-/// Entry point for the pasm CLI client.
-///
-/// Parses CLI arguments into a `CliCommand`, then either:
-/// - Runs `Login`/`Logout` directly (no session needed)
-/// - Checks for an active session, exits with an error if none found
-/// - Executes the command with the session's api_key and encr_key
-///
-/// # Panics
-/// Exits the process with code 1 on unknown commands or missing session.
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let cmd_args: Vec<String> = args.into_iter().skip(1).collect();
 
-    if cmd_args.is_empty() {
+    // Extract --loadfile before passing to command parser
+    let mut loadfile: Option<String> = None;
+    let mut filtered: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < cmd_args.len() {
+        if cmd_args[i] == "--loadfile" {
+            i += 1;
+            loadfile = Some(
+                cmd_args
+                    .get(i)
+                    .cloned()
+                    .unwrap_or_else(|| "--loadfile requires a path".to_string()),
+            );
+            i += 1;
+        } else {
+            filtered.push(cmd_args[i].clone());
+            i += 1;
+        }
+    }
+
+    if filtered.is_empty() && loadfile.is_none() {
         print!("{}", CliCommand::usage());
         return;
     }
 
-    let command = match CliCommand::from_args(&cmd_args) {
-        Ok(cmd) => cmd,
+    let (command, addr, conf) = match CliCommand::from_args(&filtered) {
+        Ok(res) => res,
         Err(e) => {
             display::print_error(&format!("Error: {e}"));
             eprint!("\n{}", CliCommand::usage());
@@ -28,9 +41,23 @@ fn main() {
         }
     };
 
-    if matches!(command, CliCommand::Login | CliCommand::Logout | CliCommand::Help) {
+    if let Some(a) = &addr {
+        config::set_server_url(a);
+    }
+    if let Some(c) = &conf {
+        config::set_config_path(c);
+    }
+
+    if matches!(
+        command,
+        CliCommand::Login | CliCommand::Logout | CliCommand::Help
+    ) {
         let result = command.execute("", "");
-        display::print_response(&result);
+        if result.starts_with("Error") {
+            display::print_error(&result);
+        } else {
+            display::print_response(&result);
+        }
         return;
     }
 
@@ -42,6 +69,26 @@ fn main() {
         }
     };
 
+    // Handle --loadfile restore before normal command flow
+    if let Some(path) = loadfile {
+        let result = ops::restore_from_file(&api_key, &path);
+        if result.starts_with("Error") {
+            display::print_error(&result);
+        } else {
+            display::print_response(&result);
+        }
+        return;
+    }
+
+    if let Err(msg) = requests::check_health() {
+        display::print_error(&msg);
+        std::process::exit(1);
+    }
+
     let result = command.execute(&api_key, &encr_key);
-    display::print_response(&result);
+    if result.starts_with("Error") {
+        display::print_error(&result);
+    } else {
+        display::print_response(&result);
+    }
 }

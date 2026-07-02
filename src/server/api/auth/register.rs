@@ -5,7 +5,7 @@ use axum::{
     response::IntoResponse,
 };
 
-use crate::types::state::PasmState;
+use crate::types::{db::Db, state::PasmState};
 
 /// Registers a new user with the authentication key from the server state.
 ///
@@ -26,5 +26,5 @@ pub async fn call(
         return StatusCode::NOT_EXTENDED.into_response();
     };
     println!("registered user!");
-    db.register_auth(&uid).into_response()
+    db.register_auth(uid).await.into_response()
 }

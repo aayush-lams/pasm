@@ -1,39 +1,39 @@
 # pasm
 
-A minimal password manager with a Rust CLI client and REST API backend.
+A password manager with a Rust CLI client and REST API backend.
 
 - **Client** — CLI tool with master-password login, AES-256 encryption, Bearer token auth
-- **Server** — Axum REST API, Sled embedded database, per-user auth key registration
-
----
-
-## Stack
-
-- **Rust** — Axum for routing, Sled as embedded database
-- **AES-256** (MagicCrypt) for encrypting entry data before upload
-- **SHA-256** for key derivation (auth + encryption keys from master password)
-- **Bearer token** authentication via per-user registered keys
-- **CLI client** — shells out to `curl` for HTTP
+- **Server** — Axum REST API, PostgreSQL, per-user auth key registration
 
 ---
 
 ## Quick start
 
 ```bash
-# Build from scratch
-cargo build
+# Start PostgreSQL + server
+docker compose up -d
+
+# Install the client
+cargo build --bin pasm_client
+./target/debug/pasm_client --help
+```
+
+Or run without Docker:
+
+```bash
+# Ensure PostgreSQL is running and set PASM_DATABASE_URL
+export PASM_DATABASE_URL="postgres://user:pass@localhost/pasm"
 
 # Start the server
 cargo run --bin pasm_server
 
-# In another terminal — first-time login (creates master password + registers key)
+# First-time login (creates master password + registers key)
 cargo run --bin pasm_client login
 
-# Use the client
+# Use it
 cargo run --bin pasm_client create
 cargo run --bin pasm_client list
 cargo run --bin pasm_client find github
-cargo run --bin pasm_client logout
 ```
 
 ---
@@ -41,65 +41,74 @@ cargo run --bin pasm_client logout
 ## Client CLI
 
 ```
-Usage: pasm_client <command> [args]
-       pasm_client help
+Usage: pasm_client [options] <command> [args]
        pasm_client -h | --help
+
+Global options:
+  --config <path>     Config file path (default: ~/.config/pasm/config.toml)
+  --addr <host:port>  Server address  (default: http://localhost:3000)
 
 Session management:
   login              Login with master password
-  logout             Log out (clear session)
+  logout             Log out (clear local session)
 
 Entry management (requires login):
-  create             Create an entry (interactive)
+  create             Create an entry (interactive prompts)
   find <name>        Find and display an entry
   list               List all entries
   delete <name>      Delete an entry
-  amend              Amend an entry (interactive, creates if missing)
+  amend              Create or overwrite an entry (interactive)
 
 Account management (requires login):
   register           Register current auth key with server
   update-auth <key>  Replace auth key (key rotation)
-  remove-auth        Remove user and all data from server
+  remove-auth        Remove user and all data
   list-users         List all registered users
-
-Other:
-  help, -h, --help   Show this help message
-```
-
-### Examples
-
-```bash
-# Start fresh — creates master password, registers key on server
-cargo run --bin pasm_client login
-
-# After login — commands use session keys automatically
-cargo run --bin pasm_client list
-cargo run --bin pasm_client create
-
-# Find and amend
-cargo run --bin pasm_client find github
-cargo run --bin pasm_client amend
-
-# Log out — clears session, commands will refuse until next login
-cargo run --bin pasm_client logout
 ```
 
 ---
 
-## Running with Docker
+## Server
 
 ```bash
-docker build -t pasm .
-docker run --rm -p 3000:3000 pasm
+pasm_server [options]
+
+Options:
+  --config <path>     Config file path (default: ~/.config/pasm/config.toml)
+  --addr <host:port>  Bind address    (default: 0.0.0.0:3000)
 ```
 
-The server does **not** require an `API_KEY` environment variable when using cli. Auth keys are registered per-user via `POST /auth` at runtime.
-
-Configurable via environment variables:
+### Environment variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `HOME` | System home | Used to locate the Sled database at `$HOME/.config/pasm/database` |
+| `PASM_DATABASE_URL` | — | PostgreSQL connection string (required) |
+| `PASM_SERVER_ADDR` | `0.0.0.0:3000` | Server bind address |
+| `PASM_SERVER_URL` | `http://localhost:3000` | Client-facing server URL |
+| `PASM_CONFIG` | `~/.config/pasm/config.toml` | Config file path |
+| `HOME` | System home | Config & session directory base |
+
+### Config file (`~/.config/pasm/config.toml`)
+
+```toml
+server_url = "http://localhost:3000"
+server_addr = "0.0.0.0:3000"
+database_url = "postgres://user:pass@localhost/pasm"
+max_connections = 5
+```
+
+Env vars and CLI flags override config file values.
+
+---
+
+## Docker Compose
+
+```bash
+docker compose up -d
+```
+
+Starts PostgreSQL 17 and pasm server on port 3000. Connection string is
+auto-configured for the Compose network.
 
 ---
 
@@ -118,38 +127,28 @@ All endpoints except `POST /auth` require `Authorization: Bearer <api_key>`.
 | `POST` | `/entry/amend` | Bearer | Create or overwrite an entry |
 | `GET` | `/entry/{name}` | Bearer | Find entry by name |
 | `DELETE` | `/entry/{name}` | Bearer | Delete entry by name |
-
-### Example
+| `GET` | `/health` | None | Health check |
 
 ```bash
-# Register a new auth key (the Bearer token IS the key being registered)
-curl -X POST -H "Authorization: Bearer <your_derived_key>" http://localhost:3000/auth
+# Register
+curl -X POST -H "Authorization: Bearer <key>" http://localhost:3000/auth
 
-# List all entries
-curl -H "Authorization: Bearer $API_KEY" http://localhost:3000/entries
-
-# Create entry (key = entry name, value = encrypted data)
-curl -X POST -H "Authorization: Bearer $API_KEY" \
+# Create entry
+curl -X POST -H "Authorization: Bearer $KEY" \
   -H "Content-Type: application/json" \
   -d '{"key":"github","value":"encrypted-data"}' \
   http://localhost:3000/entry
-
-# Find entry by name
-curl -H "Authorization: Bearer $API_KEY" http://localhost:3000/entry/github
-
-# Delete entry
-curl -X DELETE -H "Authorization: Bearer $API_KEY" \
-  http://localhost:3000/entry/github
 ```
 
 ---
 
 ## Security notes
 
-- **Key derivation**: `auth_key = SHA-256("pasm-auth" + password)`, then `api_key = SHA-256(auth_key)`. The intermediate `auth_key` is never sent over the wire.
-- **Entry encryption**: Data is AES-256 encrypted client-side before upload. The server only ever sees ciphertext.
+- **Key derivation**: Two-step SHA-256: `auth_key = SHA-256("pasm-auth" + password)`, then `api_key = SHA-256(auth_key)`. The intermediate `auth_key` is never sent over the wire.
+- **Entry encryption**: AES-256 client-side before upload. Server only sees ciphertext.
+- **Session file**: Stored at `~/.config/pasm/session` with `0600` permissions.
 
-## Not implemented/ Future enhancements
-- TLS,
-- key stretching (Argon2id)
-- OS keyring integration.
+### Not implemented / future
+- TLS
+- Argon2id key stretching
+- OS keyring integration

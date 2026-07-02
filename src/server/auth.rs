@@ -3,10 +3,10 @@ use axum::{
     extract::State,
     http::{header::AUTHORIZATION, Request, StatusCode},
     middleware::Next,
-    response::Response,
+    response::{IntoResponse, Response},
 };
 
-use crate::types::state::PasmState;
+use crate::types::{db::Db, state::PasmState};
 
 /// This function handles authentication for server requests.
 /// It takes `State<PasmState>`, request body for header.
@@ -15,28 +15,37 @@ pub async fn call(
     State(state): State<PasmState>,
     mut req: Request<Body>, // mut so we can add extensions
     next: Next,
-) -> Result<Response, StatusCode> {
-    let token = req
+) -> Response {
+    let token = match req
         .headers()
         .get(AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
-        .ok_or(StatusCode::UNAUTHORIZED)?
-        .to_string();
-
-    let users = match state.db.users() {
-        Ok(tree) => tree,
-        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+    {
+        Some(t) => t.to_string(),
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                "authorization failed — missing or malformed Bearer token",
+            )
+                .into_response();
+        }
     };
 
-    let Ok(exists) = users.contains_key(&token) else {
-        return Err(StatusCode::INTERNAL_SERVER_ERROR);
-    };
-    if !exists {
-        return Err(StatusCode::UNAUTHORIZED);
-    };
-
-    req.extensions_mut().insert(token);
-
-    Ok(next.run(req).await)
+    match state.db.auth_key_exists(&token).await {
+        Ok(true) => {
+            req.extensions_mut().insert(token);
+            next.run(req).await
+        }
+        Ok(false) => (
+            StatusCode::UNAUTHORIZED,
+            "authorization failed — invalid auth key, run `pasm_client login` to re-authenticate",
+        )
+            .into_response(),
+        Err(_) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "authorization failed — database error",
+        )
+            .into_response(),
+    }
 }
